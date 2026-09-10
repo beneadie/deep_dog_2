@@ -1,0 +1,26 @@
+.env
+venv
+agent_markdowns
+.claude
+__pycache__
+
+2026-03-08_16-30-29
+outputs
+rerun
+test_data
+examples
+eval_runs
+deep_research/__pycache__
+article.md
+report_summary_1.md
+report_sumamry_2.md
+substack_final.md
+substack.md
+substack.txt
+article_coverage_notes.md
+
+# packaging
+build/
+dist/
+*.egg-info/
+.pytest_cache/
