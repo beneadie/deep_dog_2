@@ -41,8 +41,8 @@ clarify_with_user → write_research_brief → write_draft_report
                                     supervisor research loop
                               ┌───────────────┼────────────────┐
                               │               │                │
-                           reflect        delegate       refine draft
-                         (think_tool)   (parallel agents)  (when useful)
+                           reflect        delegate       conclude research
+                         (think_tool)   (parallel agents)  
                                               |
                                               v
                                Web / Reddit / Substack / ...
@@ -60,7 +60,7 @@ clarify_with_user → write_research_brief → write_draft_report
 2. **Create a scaffold.** An initial draft establishes a useful report structure before live research begins. It is not treated as evidence.
 3. **Reflect and delegate.** The supervisor uses internal reflection to identify gaps and delegates focused, non-overlapping research tasks to platform agents.
 4. **Research in parallel.** Agents search, read, save, and compress findings using the tools available for their platform. Their results are returned with source metadata and citations.
-5. **Evaluate and refine.** The supervisor reviews the findings, may request another round, and can refine the draft as the evidence improves.
+5. **Evaluate.** The supervisor reviews the findings and may request another round.
 6. **Finalize the report.** The final writer combines the brief, draft, and findings. Citation checks validate the relationship between inline citations and the final sources list.
 
 Supervisor reflection is used for planning and control; it is not copied into the final research report. Optional subtopic evaluation and parallel subtopic reports can run after the main report when enabled in `deep_research/config.py`.
@@ -262,7 +262,7 @@ The complete configuration lives in `deep_research/config.py`. Start with the se
 
 | Setting | Default | What it controls |
 |---|---|---|
-| `SUPERVISOR_MODEL` | `deepseek-v4-pro` | Planning, reflection, draft refinement, and final report writing |
+| `SUPERVISOR_MODEL` | `deepseek-v4-pro` | Planning, reflection, and final report writing |
 | `SUBAGENT_MODEL` | `deepseek-v4-flash` | Web, Reddit, Substack, and other platform agents |
 | `DRAFT_REPORT_MODEL` | `nvidia/nemotron-3.5-lightning` | Research brief and initial draft; this default requires `OPENROUTER_API_KEY` |
 | `*_MODEL_FALLBACK_CHAIN` | Role-dependent | Comma-separated fallback models for each role |
