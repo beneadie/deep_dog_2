@@ -4,6 +4,8 @@ Turn a question into a cited Markdown report. A supervisor plans the research, d
 
 This is the **Python package version** of Deep Dog 2. Call `run_research()` with a per-run configuration to choose models, search, agent types and research budgets without editing the engine.
 
+Created by [Benjamin Andrew Eadie](https://beneadie.netlify.app/).
+
 ## Official benchmark results
 
 At the time of publication, Deep Dog 2 ranked **5th overall** and **1st among open-source research agents** on the [DeepResearch Bench](https://huggingface.co/spaces/muset-ai/DeepResearch-Bench-Leaderboard). The published run used a relatively economical profile: a 15-minute research window, a 20-iteration supervisor cap, at most 3 Exa searches per sub-agent, DeepSeek V4 Pro as supervisor, and DeepSeek V4 Flash for sub-agents.
