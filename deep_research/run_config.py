@@ -29,8 +29,7 @@ from deep_research import config as _cfg
 
 # ── Hard server safety caps ──────────────────────────────────────────────
 # These bound any request value regardless of profile/request overrides.
-HARD_MAX_DURATION_MINUTES = 240.0   # 4 hours absolute ceiling for one run
-HARD_MIN_DURATION_MINUTES = 0.25    # 15s floor (below that is a config bug)
+HARD_MAX_DURATION_MINUTES = 240.0   # Upper bound for research-window settings
 HARD_MAX_SUPERVISOR_ITERATIONS = 500
 HARD_MAX_SUBAGENT_ITERATIONS = 60
 HARD_MAX_SUBAGENT_READS = 200
@@ -63,7 +62,7 @@ class RunConfig:
 
     # ── Identity / labelling ───────────────────────────────────────────
     profile: Optional[str] = None          # human label, e.g. "muse-spark-1.2"
-    prompt_version: str = _cfg.PROMPT_VERSION          # "OPEN" | "LEGACY"
+    prompt_version: str = _cfg.PROMPT_VERSION          # "OPEN"
     output_mode: str = _cfg.OUTPUT_MODE     # "file" | "db" | "both" | "none"
     log_mode: str = _cfg.LOG_MODE           # "file" | "db" | "both"
     language: Optional[str] = None          # optional seed target language
@@ -93,16 +92,11 @@ class RunConfig:
     # ── Research timing (minutes) ──────────────────────────────────────
     research_time_min_minutes: float = _cfg.RESEARCH_TIME_MIN_MINUTES
     research_time_max_minutes: float = _cfg.RESEARCH_TIME_MAX_MINUTES
-    # Optional explicit hard deadline for the run. When unset the engine uses
-    # research_time_max_minutes + 1 (historical CLI behaviour). Clamped to
-    # HARD_MAX_DURATION_MINUTES by finalize().
-    max_duration_minutes: Optional[float] = None
     findings_salvage_time_fraction: float = _cfg.FINDINGS_SALVAGE_TIME_FRACTION
 
     # ── Supervisor limits ──────────────────────────────────────────────
     supervisor_max_iterations: int = _cfg.SUPERVISOR_MAX_ITERATIONS
     supervisor_timeout_seconds: int = _cfg.SUPERVISOR_TIMEOUT_SECONDS
-    refine_timeout_seconds: int = _cfg.REFINE_TIMEOUT_SECONDS
     supervisor_max_concurrent_research: int = _cfg.SUPERVISOR_MAX_CONCURRENT_RESEARCH
     supervisor_max_concurrent_discovery: int = _cfg.SUPERVISOR_MAX_CONCURRENT_DISCOVERY
 
@@ -124,6 +118,13 @@ class RunConfig:
     web_search_engine: str = _cfg.WEB_SEARCH_ENGINE          # "tavily"|"exa"|"both"
     exa_search_max_chars: int = _cfg.EXA_SEARCH_MAX_CHARS
     fetch_url_max_chars: int = _cfg.FETCH_URL_MAX_CHARS
+
+    # ── Structured trace logging ───────────────────────────────────────
+    # Content-rich per-run trace (full prompts, thinking, tool calls, source
+    # rationale). Independent of the content-free product events.
+    logging_enabled: bool = _cfg.LOGGING_ENABLED
+    # Max chars per string in a trace record; None/0 = no truncation.
+    log_truncation: Optional[int] = _cfg.LOG_TRUNCATION
 
     # ── Output behaviour ───────────────────────────────────────────────
     save_report_to_file: bool = _cfg.SAVE_REPORT_TO_FILE
@@ -157,13 +158,11 @@ class RunConfig:
 
     @property
     def strict_timeout_minutes(self) -> float:
-        """Hard deadline for the run, in minutes.
+        """Research threshold for routing the supervisor to final writing.
 
-        Explicit ``max_duration_minutes`` wins; otherwise the historical CLI
-        behaviour (research_time_max + 1) is preserved.
+        Matches the original engine's research_time_max + 1. This is checked
+        between supervisor turns and never cancels a run or final writing.
         """
-        if self.max_duration_minutes is not None:
-            return float(self.max_duration_minutes)
         return float(self.research_time_max_minutes) + 1.0
 
     @property
@@ -178,15 +177,13 @@ class RunConfig:
 
     def finalize(self, *, in_place: bool = False) -> "RunConfig":
         """Apply hard server safety caps. Returns a clamped copy by default."""
+        if self.prompt_version.upper() != "OPEN":
+            raise ValueError("Only the OPEN prompt version is supported.")
+
         def norm(value: Any, lo: Any, hi: Any) -> Any:
             return max(lo, min(hi, value))
 
         kw: dict[str, Any] = {}
-        if self.max_duration_minutes is not None:
-            kw["max_duration_minutes"] = _clamp(
-                float(self.max_duration_minutes),
-                HARD_MIN_DURATION_MINUTES, HARD_MAX_DURATION_MINUTES,
-                "max_duration_minutes")
         if not (0.5 <= float(self.research_time_min_minutes) <= HARD_MAX_DURATION_MINUTES):
             kw["research_time_min_minutes"] = _clamp(
                 float(self.research_time_min_minutes),

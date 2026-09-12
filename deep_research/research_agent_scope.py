@@ -113,6 +113,14 @@ def write_research_brief(state: AgentState) -> Command[Literal["write_draft_repo
     # (a single mis-detection can still occur, but the two can never diverge).
     input_language = response.input_language or response.target_language or runtime.config.target_language_fallback
     _emit(_events.SCOPE_COMPLETED, phase="scope", agent="research_brief")
+    runtime.observer.emit_trace(
+        "research_brief",
+        phase="scope",
+        agent="research_brief",
+        research_brief=response.research_brief,
+        input_language=input_language,
+        target_language=input_language,
+    )
     return Command(
             goto="write_draft_report",
             update={
@@ -157,6 +165,14 @@ async def write_draft_report(state: AgentState) -> Command[Literal["__end__"]]:
     original_question = get_buffer_string(state.get("messages", []))
     _emit(_events.DRAFT_COMPLETED, phase="scope", agent="draft_report",
           chars=len(draft_report))
+    runtime.observer.emit_trace(
+        "draft_report",
+        phase="scope",
+        agent="draft_report",
+        research_brief=research_brief,
+        draft_report=draft_report,
+        target_language=target_language,
+    )
     return {
         "research_brief": research_brief,
         "draft_report": draft_report,

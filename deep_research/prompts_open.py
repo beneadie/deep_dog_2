@@ -22,9 +22,6 @@ from deep_research.config import RESEARCH_TIME_MIN_MINUTES, RESEARCH_TIME_MAX_MI
 _current_year = datetime.now().year
 _previous_year = _current_year - 1
 
-# This prompt version does NOT run the iterative draft-refinement loop
-# (no refine_draft_report tool). LEGACY enables it.
-ENABLE_REFINE = False
 
 clarify_with_user_instructions="""
 These are the messages that have been exchanged so far from the user asking for the report:

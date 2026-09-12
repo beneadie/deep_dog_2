@@ -2,8 +2,8 @@
 
 A ``RuntimeContext`` bundles everything a research run needs that used to live
 in process globals: resolved config, per-run credentials + model factory,
-per-run observer (events/sources/trace/counters), cancellation token and
-deadline, plus an optional external LangGraph checkpointer.
+per-run observer (events/sources/trace/counters), cancellation token,
+plus an optional external LangGraph checkpointer.
 
 The context is installed in a ``contextvars.ContextVar`` by the integration
 driver for the duration of a run. Graph nodes read ``get_runtime()`` to obtain
@@ -19,7 +19,6 @@ environment defaults, preserving the old standalone behaviour.
 from __future__ import annotations
 
 import contextvars
-import importlib
 import threading
 import time
 from contextlib import contextmanager
@@ -28,7 +27,6 @@ from typing import Any, Optional
 
 from deep_research.cancellation import (
     CancellationToken,
-    Deadline,
     RunCancelledError,
     as_cancellation_checker,
 )
@@ -37,32 +35,23 @@ from deep_research.observer import Observer
 from deep_research.run_config import RunConfig
 
 # ── Prompt library ──────────────────────────────────────────────────────
-_PROMPT_MODULES = {"OPEN": "deep_research.prompts_open", "LEGACY": "deep_research.prompts_legacy"}
-_prompt_module_cache: dict[str, Any] = {}
-_prompt_lock = threading.Lock()
 
 
 class PromptLibrary:
-    """Resolves the active prompt set for a run's PROMPT_VERSION."""
+    """Access the OPEN prompt bundle; reject retired prompt versions."""
 
     def __init__(self, version: str):
         self.version = (version or "OPEN").upper()
+        if self.version != "OPEN":
+            raise ValueError("Only the OPEN prompt version is supported.")
 
     @property
     def module(self) -> Any:
-        key = self.version if self.version in _PROMPT_MODULES else "OPEN"
-        with _prompt_lock:
-            mod = _prompt_module_cache.get(key)
-            if mod is None:
-                mod = importlib.import_module(_PROMPT_MODULES[key])
-                _prompt_module_cache[key] = mod
-            return mod
+        from deep_research import prompts_open
+        return prompts_open
 
     def get(self, name: str, default: Any = None) -> Any:
         return getattr(self.module, name, default)
-
-    def refine_enabled(self) -> bool:
-        return bool(getattr(self.module, "ENABLE_REFINE", False))
 
 
 # ── Runtime context ─────────────────────────────────────────────────────
@@ -89,7 +78,6 @@ class RuntimeContext:
     console_enabled: bool = True        # CLI prints on; API off
     start_monotonic: float = field(default_factory=time.monotonic)
     host: Any = None                    # opaque host-provided runtime object
-    deadline_override_seconds: Optional[float] = None
 
     def __post_init__(self):
         if self.models is None:
@@ -111,15 +99,10 @@ class RuntimeContext:
             object.__setattr__(self, "_prompts", lib)
         return lib
 
-    @property
-    def deadline(self) -> Deadline:
-        secs = self.deadline_override_seconds
-        if secs is None:
-            secs = self.config.strict_timeout_minutes * 60.0
-        return Deadline(start_monotonic=self.start_monotonic, max_seconds=secs)
-
     def remaining_minutes(self) -> float:
-        return self.deadline.remaining_minutes()
+        """Advisory research time remaining for telemetry, never a run cutoff."""
+        elapsed = (time.monotonic() - self.start_monotonic) / 60.0
+        return max(0.0, self.config.strict_timeout_minutes - elapsed)
 
     def check_cancelled(self) -> None:
         """Raise RunCancelledError if the cooperative cancellation flag is set."""

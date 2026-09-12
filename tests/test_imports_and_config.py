@@ -19,7 +19,7 @@ def test_pyproject_exists_and_names_package():
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
     pyproject = (root / "pyproject.toml").read_text()
-    assert "deep-dog-engine" in pyproject
+    assert "deep-dog-2" in pyproject
     assert "include = [\"deep_research*\"]" in pyproject
 
 
@@ -80,16 +80,37 @@ def test_run_config_overrides_and_hard_caps():
         profile="muse-spark-1.2",
         research_time_min_minutes=2,
         research_time_max_minutes=10,
-        max_duration_minutes=30.0,
         supervisor_max_iterations=99999,
         subagent_max_iterations=99999,
         output_mode="none",
     ).finalize()
     assert cfg.profile == "muse-spark-1.2"
-    assert cfg.strict_timeout_minutes == 30.0
+    assert cfg.strict_timeout_minutes == 11.0
     # Hard caps clamp runaway values.
     assert cfg.supervisor_max_iterations <= 500
     assert cfg.subagent_max_iterations <= 60
+
+
+def test_retired_prompt_version_is_rejected():
+    from deep_research.runtime import PromptLibrary
+
+    with pytest.raises(ValueError, match="Only the OPEN"):
+        RunConfig(prompt_version="LEGACY").finalize()
+    with pytest.raises(ValueError, match="Only the OPEN"):
+        PromptLibrary("LEGACY")
+    assert PromptLibrary("OPEN").module.__name__ == "deep_research.prompts_open"
+
+
+def test_supervisor_retains_research_tools_without_refinement():
+    from deep_research.multi_agent_supervisor import _active_supervisor_tools
+    from deep_research.runtime import get_runtime
+
+    names = {getattr(tool, "name", None) or tool.__name__
+             for tool in _active_supervisor_tools()}
+    assert "ResearchComplete" in names
+    assert "think_tool" in names
+    assert set(get_runtime().config.enabled_agents) <= names
+    assert "refine_draft_report" not in names
 
 
 def test_model_factory_per_run_isolation():

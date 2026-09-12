@@ -6,7 +6,7 @@ The research_agent_api product imports exactly one entry point from Deep Dog:
 
 ``run_research`` executes the existing public research graph with a fully
 per-run configuration, per-run provider credentials, isolated observability,
-structured events, cooperative cancellation, a real deadline, and an optional
+structured events, cooperative cancellation, and an optional
 external LangGraph checkpointer — without writing files and without mutating
 ``os.environ``.
 
@@ -18,9 +18,11 @@ by the host application.
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 import string
 import time
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -33,9 +35,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from deep_research import events as _events
 from deep_research.cancellation import (
     CancellationToken,
-    Deadline,
     RunCancelledError,
-    RunDeadlineExceededError,
     as_cancellation_checker,
 )
 from deep_research.events import EventCollector
@@ -43,6 +43,9 @@ from deep_research.models import Credentials, ModelFactory
 from deep_research.observer import Observer
 from deep_research.run_config import RunConfig
 from deep_research.runtime import RuntimeContext, runtime_scope
+from deep_research.trace import TraceCollector, TraceRecord
+
+_log = logging.getLogger(__name__)
 
 
 class RunStatus(str, Enum):
@@ -167,12 +170,12 @@ class RuntimeOptions:
     run_id: Optional[str] = None
     thread_id: Optional[str] = None
     event_sink: Any = None
+    trace_sink: Any = None
     artifact_sink: Any = None
     cancellation: Any = None
     checkpointer: Any = None
     output_dir: Optional[Path] = None
     console_enabled: bool = True
-    deadline_override_seconds: Optional[float] = None
 
 
 @dataclass
@@ -194,6 +197,7 @@ class ResearchResult:
     run_metadata: dict = field(default_factory=dict)
     usage: dict = field(default_factory=dict)
     failure: Optional[str] = None
+    logs: list = field(default_factory=list)   # structured trace records (dicts)
 
     def to_dict(self) -> dict:
         return {
@@ -212,12 +216,37 @@ class ResearchResult:
             "run_metadata": self.run_metadata,
             "usage": self.usage,
             "failure": self.failure,
+            "logs": self.logs,
         }
 
 
 def _generate_id(prefix: str) -> str:
     suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
     return f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{suffix}"
+
+
+# Interval (seconds) for the background flusher that streams buffered events and
+# trace records while the graph is inside a long-running nested node (e.g. the
+# supervisor subgraph awaiting sub-agents). Without it, records only flush when
+# the top-level graph yields, which can be minutes later — or never, on a crash.
+_FLUSH_INTERVAL_SECONDS = 0.2
+
+
+async def _periodic_flush(observer: Observer, interval: float = _FLUSH_INTERVAL_SECONDS) -> None:
+    """Flush the observer's buffers on a fixed cadence until cancelled.
+
+    A failing host sink must not take down the run: the error is logged and the
+    cadence continues. A persistent failure still surfaces through the normal
+    end-of-run flush path.
+    """
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await observer.flush_events()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - background liveness must not crash the run
+            _log.exception("periodic trace/event flush failed")
 
 
 def _materialize(result: dict, observer: Observer, trace_enabled: bool) -> dict:
@@ -270,8 +299,10 @@ async def run_research(
         run_id=run_id,
         config=cfg,
         event_sink=options.event_sink,
+        trace_sink=options.trace_sink,
         artifact_sink=options.artifact_sink,
         console_enabled=options.console_enabled,
+        credentials=creds,
     )
     if options.output_dir is not None and cfg.log_mode in ("file", "both"):
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -291,9 +322,7 @@ async def run_research(
         console_enabled=options.console_enabled,
         start_monotonic=started_monotonic,
         host=options,
-        deadline_override_seconds=options.deadline_override_seconds,
     )
-    deadline = context.deadline
     cancellation_check = as_cancellation_checker(options.cancellation)
 
     result = ResearchResult(status=RunStatus.COMPLETED.value, run_id=run_id, thread_id=thread_id)
@@ -314,6 +343,8 @@ async def run_research(
     with runtime_scope(context):
         observer.emit(_events.RUN_STARTED, phase="run", agent="runner",
                       prompt=prompt[:2000], run_profile=cfg.profile)
+        observer.emit_trace("run_started", phase="run", agent="runner",
+                            prompt=prompt, profile=cfg.profile)
         # Pre-flight credential report (names only, never values).
         cred_check = validate_credentials(cfg, creds)
         observer.emit(_events.CONFIG_VALIDATED, phase="run", agent="runner",
@@ -324,24 +355,23 @@ async def run_research(
         state_holder: list[dict] = []
 
         async def _drive() -> None:
-            """Stream graph values; track latest state; cooperate on cancel/deadline."""
+            """Stream graph values and cooperate with explicit host cancellation.
+
+            Research timing is handled by the supervisor's transition to final
+            writing. Never cancel the graph because that window has elapsed.
+            """
             async for chunk in graph.astream(inputs, config=graph_config, stream_mode="values"):
                 if isinstance(chunk, dict) and chunk:
                     state_holder[:] = [dict(chunk)]
                 await observer.flush_events()
                 if cancellation_check():
                     raise RunCancelledError("run cancelled by host")
-                if deadline.expired():
-                    raise RunDeadlineExceededError("deadline exceeded")
 
-        timeout_seconds = deadline.remaining_seconds()
+        # Background flusher: streams records while nested nodes block the
+        # top-level driver (supervisor subgraph, awaited sub-agents, etc.).
+        flusher = asyncio.create_task(_periodic_flush(observer))
         try:
-            if timeout_seconds is not None and timeout_seconds <= 0:
-                raise RunDeadlineExceededError("deadline already exceeded")
-            if timeout_seconds is not None:
-                await asyncio.wait_for(_drive(), timeout=timeout_seconds)
-            else:
-                await _drive()
+            await _drive()
         except RunCancelledError as e:
             await observer.flush_events()
             observer.emit(_events.RUN_CANCELLED, phase="run", agent="runner",
@@ -349,14 +379,6 @@ async def run_research(
             await observer.flush_events()
             result.status = RunStatus.CANCELLED.value
             result.failure = str(e) or "cancelled"
-        except (asyncio.TimeoutError, RunDeadlineExceededError) as e:
-            await observer.flush_events()
-            observer.emit(_events.RUN_TIMED_OUT, phase="run", agent="runner",
-                          reason="deadline exceeded",
-                          elapsed_seconds=round(time.monotonic() - started_monotonic, 2))
-            await observer.flush_events()
-            result.status = RunStatus.TIMED_OUT.value
-            result.failure = f"run exceeded its time budget: {e}"
         except Exception as e:  # noqa: BLE001 - surface as failed result
             await observer.flush_events()
             observer.emit(_events.RUN_FAILED, phase="run", agent="runner",
@@ -365,6 +387,10 @@ async def run_research(
             await observer.flush_events()
             result.status = RunStatus.FAILED.value
             result.failure = f"{type(e).__name__}: {e}"
+        finally:
+            flusher.cancel()
+            with suppress(asyncio.CancelledError):
+                await flusher
 
         final_state: dict = state_holder[-1] if state_holder else {}
 
@@ -407,13 +433,24 @@ async def run_research(
             "trace_entries": len(result.trace),
         }
 
-        # Terminal event. Fail/cancel/timeout paths already emitted their
-        # specific RUN_FAILED / RUN_CANCELLED / RUN_TIMED_OUT above.
+        # Terminal trace record (full report/brief/draft content).
+        observer.emit_trace(
+            "run_completed", phase="run", agent="runner",
+            status=result.status,
+            final_report=result.final_report,
+            research_brief=result.research_brief,
+            draft_report=result.draft_report,
+            elapsed_seconds=round(time.monotonic() - started_monotonic, 2),
+        )
+
+        # Fail/cancel paths already emitted their specific terminal events.
         if result.status == RunStatus.COMPLETED.value:
             observer.emit(_events.RUN_COMPLETED, phase="run", agent="runner",
                           elapsed_seconds=round(time.monotonic() - started_monotonic, 2),
                           report_chars=len(result.final_report))
         await observer.flush_events()
+
+        result.logs = observer.get_trace_records()
 
         # Deliver artifacts to the host artifact sink when provided.
         if observer.artifact_sink is not None:
@@ -439,4 +476,6 @@ __all__ = [
     "validate_credentials",
     "CancellationToken",
     "EventCollector",
+    "TraceRecord",
+    "TraceCollector",
 ]

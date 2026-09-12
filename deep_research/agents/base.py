@@ -34,10 +34,12 @@ from deep_research.config import (
     contains_sensitive,
 )
 from deep_research.time_utils import get_today_str
+from deep_research.utils import extract_text_from_response
 from deep_research.console_logger import Colors
 from deep_research.observability import log_source
 from deep_research.runtime import get_runtime
 from deep_research.secrets import get_secret
+from deep_research.trace import serialize_message
 from deep_research import events as _events
 from deep_research.platform_prompts import (
     BASE_AGENT_PROMPT,
@@ -671,7 +673,6 @@ async def llm_call(state: ResearcherState):
     n_read = plan["n_read"]
     n_searches = plan["n_searches"]
     caps = plan["caps"]
-    nudges = plan["nudges"]
 
     # ── Final-turn tool restriction ──
     if plan["forced_save"]:
@@ -749,15 +750,33 @@ async def llm_call(state: ResearcherState):
 
     messages = [SystemMessage(content=system_text)] + list(state["researcher_messages"])
 
+    _rt.observer.emit_trace(
+        "subagent_prompt",
+        phase="subagent",
+        agent=agent_type,
+        platform=agent_type,
+        iteration=current_iteration,
+        discovery=bool(discovery),
+        mode="discovery" if discovery else "research",
+        system_prompt=system_text,
+        messages=[serialize_message(m) for m in messages],
+        tools=[t.name for t in tools],
+        output_mode=output_mode,
+    )
+
     # ── Banner (caps and nudges rendered once each) ──
     cap_str = f"  caps: {', '.join(caps)}" if caps else ""
-    warn_str = "  ⚠ " + "; ".join(nudges) if nudges else ""
+    # Keep model-facing instructions in status_text; the console gets a short
+    # label. Display iterations from zero without changing any budget logic.
+    warn_str = "  |  final save round" if plan["forced_save"] else (
+        "  |  final round" if plan["is_final"] else "")
     mode_tag = f"{Colors.YELLOW}{Colors.BOLD}DISCOVERY MODE{Colors.RESET}  " if discovery else ""
+    agent_tag = f" #{state['console_agent_id']}" if state.get("console_agent_id") is not None else ""
     if _rt.console_enabled:
         print(f"\n{'─' * 55}")
-        print(f"  {mode_tag}{plat['label']} agent  |  iter {current_iteration + 1}/{max_iter}"
-              f"  |  saved: {n_saved}  |  read: {n_read}  |  searches: {n_searches}{cap_str}{warn_str}")
-        print(f"{'─' * 55}")
+        print(f"  {mode_tag}{plat['label']} agent{agent_tag}  |  iter {current_iteration}/{max_iter}"
+              f"  |  selected: {n_saved}  |  read: {n_read}  |  searches: {n_searches}{cap_str}{warn_str}")
+        print(f"{'─' * 55}", flush=True)
 
     try:
         response = await asyncio.wait_for(model.ainvoke(messages), timeout=_rt.config.llm_timeout)
@@ -770,9 +789,32 @@ async def llm_call(state: ResearcherState):
             )]
         }
 
+    response_text = extract_text_from_response(response.content)
+    response_tool_calls = response.tool_calls if hasattr(response, "tool_calls") else []
+    reasoning_content = (
+        response.additional_kwargs.get("reasoning_content")
+        if hasattr(response, "additional_kwargs") else None
+    )
+    _rt.observer.emit_trace(
+        "subagent_response",
+        phase="subagent",
+        agent=agent_type,
+        platform=agent_type,
+        iteration=current_iteration,
+        discovery=bool(discovery),
+        mode="discovery" if discovery else "research",
+        output_mode=output_mode,
+        response=response_text,
+        thinking=str(reasoning_content) if reasoning_content else "",
+        tool_calls=[
+            {"name": tc.get("name", ""), "args": tc.get("args", {})}
+            for tc in (response_tool_calls or [])
+        ],
+    )
+
     updates = {
         "researcher_messages": [AIMessage(
-            content=response.content if isinstance(response.content, str) else "",
+            content=response_text,
             tool_calls=response.tool_calls if hasattr(response, "tool_calls") else [],
             additional_kwargs={"reasoning_content": response.additional_kwargs.get("reasoning_content")},
         )]
@@ -878,6 +920,16 @@ async def tool_node(state: ResearcherState):
                     platform=agent_type,
                     url=str(item.get("url", "")).strip() or identifier,
                     title=str(item.get("title", "")) or identifier)
+        _rt.observer.emit_trace(
+            "source_saved",
+            phase="subagent",
+            agent=agent_type,
+            platform=agent_type,
+            identifier=identifier,
+            url=str(item.get("url", "")).strip() or identifier,
+            title=str(item.get("title", "")) or identifier,
+            reason=reason,
+        )
         return f"Saved {identifier} — {reason[:80]}"
 
     async def run_one(tc: dict) -> tuple[dict, str, dict]:
@@ -1473,6 +1525,8 @@ async def compress_research(state: ResearcherState) -> dict:
         "saved_articles": saved,
         "findings_log": findings,
         "iteration_count": iteration_count,
+        "search_count": state.get("search_count", 0),
+        "read_count": len(state.get("articles_read", {})),
         "source_registry": source_registry,
     }
 

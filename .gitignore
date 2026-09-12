@@ -1,26 +1,46 @@
 .env
-venv
-agent_markdowns
-.claude
-__pycache__
+.env.*
+!.env.example
+venv/
+.venv/
 
-2026-03-08_16-30-29
-outputs
-rerun
-test_data
-examples
-eval_runs
-deep_research/__pycache__
-article.md
-report_summary_1.md
-report_sumamry_2.md
-substack_final.md
-substack.md
-substack.txt
-article_coverage_notes.md
+# Python caches and test/tooling output
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local runtime output and databases
+outputs/
+*.partial.md
+*.log
+*.sqlite
+*.sqlite3
+*.db
+agent_markdowns/
+eval_runs/
+test_data/
+rerun/
+
+# Local-only configuration
+.claude/
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+
+# Local editor settings
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
 
 # packaging
 build/
 dist/
 *.egg-info/
-.pytest_cache/

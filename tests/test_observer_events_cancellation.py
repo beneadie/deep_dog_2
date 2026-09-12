@@ -1,4 +1,4 @@
-"""Observer, events, cancellation, deadline, and concurrency-isolation tests.
+"""Observer, events, cancellation, and concurrency-isolation tests.
 
 All tests are offline: no LLM or search provider is called.
 """
@@ -9,7 +9,6 @@ import pytest
 
 from deep_research.cancellation import (
     CancellationToken,
-    Deadline,
     RunCancelledError,
     as_cancellation_checker,
 )
@@ -25,6 +24,30 @@ def _observer(run_id="r1", sink=None, **cfg_overrides):
     return Observer(run_id=run_id, config=api_config(**cfg_overrides), event_sink=sink)
 
 
+def test_console_progress_is_immediate_without_trace_logging(capsys):
+    obs = _observer(logging_enabled=False)
+    obs.emit("scope_started", phase="scope", prompt="private prompt")
+    # No flush_events call or external sink is needed to see startup progress.
+    output = capsys.readouterr().out
+    assert "Creating research brief (waiting for model)" in output
+    assert "private prompt" not in output
+    assert obs.get_trace_records() == []
+
+
+def test_console_progress_can_be_disabled(capsys):
+    obs = Observer(run_id="quiet", config=api_config(), console_enabled=False)
+    obs.emit("scope_started", phase="scope")
+    assert capsys.readouterr().out == ""
+
+
+def test_console_progress_flushes_stdout(monkeypatch):
+    from unittest.mock import Mock
+    output = Mock()
+    monkeypatch.setattr("builtins.print", output)
+    _observer().emit("draft_started")
+    assert output.call_args.kwargs["flush"] is True
+
+
 def test_cancellation_token_and_checker():
     token = CancellationToken()
     checker = as_cancellation_checker(token)
@@ -36,15 +59,6 @@ def test_cancellation_token_and_checker():
 
     # plain callables also work
     assert as_cancellation_checker(lambda: True)() is True
-
-
-def test_deadline_expiry():
-    d = Deadline.after(max_seconds=0.0)
-    assert d.expired()
-    assert d.remaining_seconds() == 0.0
-    d2 = Deadline.after(max_seconds=60)
-    assert not d2.expired()
-    assert d2.remaining_seconds() > 0
 
 
 def test_event_collector_and_sync_delivery():

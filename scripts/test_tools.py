@@ -9,10 +9,9 @@ Engine-interception tests (curation, index resolution, routing, caps,
 fallbacks) run against the shared platform engine in deep_research/agents/base.py.
 
 Usage:
-    python test_tools.py --agent reddit          # test one platform's tools
-    python test_tools.py --agent meta            # Meta Model API routing + live probe
-    python test_tools.py --agent all             # test every platform
-    python test_tools.py --agent sec_edgar --tool get_financials
+    python scripts/test_tools.py --agent reddit  # test one platform's tools
+    python scripts/test_tools.py --agent meta    # Meta Model API routing + live probe
+    python scripts/test_tools.py --agent all     # test every platform
 """
 
 import argparse
@@ -31,7 +30,6 @@ logging.basicConfig(level=logging.ERROR, format="%(levelname)s: %(message)s")
 
 if __name__ == "__main__" and not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    __package__ = Path(__file__).resolve().parent.name
 
 # ── Platform tools (new production modules) ────────────────────────────
 from deep_research.agents.shared.tools import (        # noqa: E402
@@ -1133,7 +1131,7 @@ async def test_supervisor_prompt(results: list) -> None:
         "print('OK' if not leftover else ('LEFTOVER ' + ','.join(leftover)))"
     )
     repo_root = str(Path(__file__).resolve().parents[1])
-    for version in ("OPEN", "LEGACY"):
+    for version in ("OPEN",):
         env = dict(os.environ)
         env["PROMPT_VERSION"] = version
         r = subprocess.run(
@@ -1169,7 +1167,7 @@ async def test_language_detection(results: list) -> None:
         "print('OK' if all(checks) else 'MISSING')"
     )
     repo_root = str(Path(__file__).resolve().parents[1])
-    for version in ("OPEN", "LEGACY"):
+    for version in ("OPEN",):
         env = dict(os.environ)
         env["PROMPT_VERSION"] = version
         r = subprocess.run(

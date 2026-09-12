@@ -85,7 +85,7 @@ Examples of model names accepted by get_model():
 #                            Env: SUPERVISOR_MODEL_FALLBACK_CHAIN
 # DRAFT_REPORT_MODEL         Research brief and initial draft model (any model
 #                            name above).
-#                            Default: "nvidia/nemotron-3.5-lightning"
+#                            Default: "deepseek-v4-flash"
 #                            Env: DRAFT_REPORT_MODEL
 # DRAFT_REPORT_MODEL_FALLBACK_CHAIN   Comma-separated fallback list.
 #                            Default: [DRAFT_REPORT_MODEL, "deepseek-v4-flash",
@@ -102,7 +102,7 @@ Examples of model names accepted by get_model():
 #                            Platform research agents.
 #                            Unset = inherit ROUTE_VIA_OPENROUTER.
 # SUPERVISOR_ROUTE_VIA_OPENROUTER
-#                            Supervisor + refine_draft_report + final report write
+#                            Supervisor + final report write
 #                            (cache-tied; they always share this flag).
 #                            Unset = inherit ROUTE_VIA_OPENROUTER.
 # DRAFT_ROUTE_VIA_OPENROUTER Research brief + initial draft report nodes
@@ -122,7 +122,6 @@ Examples of model names accepted by get_model():
 # ── Prompt version ──────────────────────────────────────────────────────
 # PROMPT_VERSION             Supervisor prompt set.
 #                            "OPEN"             — current open-ended prompt
-#                            "LEGACY"           — iterative draft refinement
 #                            Default: "OPEN"
 #
 # ── Research timing ─────────────────────────────────────────────────────
@@ -206,7 +205,7 @@ Examples of model names accepted by get_model():
 #                            "file" | "db" | "both"
 #                            Default: "file"
 # SAVE_REPORT_TO_FILE        Write final/subtopic reports to disk.
-#                            Default: True
+#                            Default: False (return report text to the caller)
 # SAVE_SUBAGENT_REPORTS_TO_FILE  Also write each sub-agent deliverable as a
 #                            full-length .md (sub_agents/sub_agent_XXX.md).
 #                            Default: False
@@ -251,6 +250,7 @@ import contextvars
 import json
 import os
 import re
+from typing import Optional
 from langchain.chat_models import init_chat_model
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import AIMessage
@@ -258,15 +258,13 @@ from langchain_core.messages import AIMessage
 # ===== CONFIGURATION =====
 
 # Supervisor model can be configured independently from subagents.
-# Defaults to DeepSeek v4 Pro (fallback: MiMo 2.5 Pro) unless overridden
+# Defaults to DeepSeek V4 Flash unless overridden
 # via environment variable.
-SUPERVISOR_MODEL = os.environ.get("SUPERVISOR_MODEL", "deepseek-v4-pro")
+SUPERVISOR_MODEL = os.environ.get("SUPERVISOR_MODEL", "deepseek-v4-flash")
 
-# Select the prompt version to use ("OPEN" or "LEGACY")
 # OPEN             = lean, most open-ended; minimal draft, supervisor fills in the information
-# LEGACY           = retained draft-heavy prompt with iterative draft refinement
-# Env: PROMPT_VERSION
-PROMPT_VERSION = os.environ.get("PROMPT_VERSION", "OPEN")  # "OPEN" | "LEGACY"
+# Env: PROMPT_VERSION (only OPEN is supported)
+PROMPT_VERSION = os.environ.get("PROMPT_VERSION", "OPEN")
 
 # Research time window (in minutes) - controls the expected task duration
 RESEARCH_TIME_MIN_MINUTES = 5
@@ -319,9 +317,6 @@ SUBAGENT_TIMEOUT_SECONDS = 600  # 10 minutes
 # call so a stalled provider can't hang research.
 SUPERVISOR_TIMEOUT_SECONDS = int(os.environ.get("SUPERVISOR_TIMEOUT_SECONDS", "420"))
 
-# Per-refine_draft_report time limit (seconds). Bounds the cache-friendly
-# refine call so a stalled provider can't hang the supervisor loop.
-REFINE_TIMEOUT_SECONDS = int(os.environ.get("REFINE_TIMEOUT_SECONDS", "240"))
 
 # Canonical fallback language used when the upstream language classifier fails.
 TARGET_LANGUAGE_FALLBACK = "English"
@@ -337,7 +332,7 @@ DEFAULT_MAX_TOKENS = None  # Previously was 32000-40000, now unlimited
 # Controls whether reports (final and subtopic) are saved to disk as files.
 # Env: SAVE_REPORT_TO_FILE (0/false/no/off disables file writes)
 SAVE_REPORT_TO_FILE: bool = os.environ.get(
-    "SAVE_REPORT_TO_FILE", "true"
+    "SAVE_REPORT_TO_FILE", "false"
 ).strip().lower() not in {"0", "false", "no", "off"}
 
 # When ON, each sub-agent's deliverable (curated list, mini-report, or inline
@@ -418,7 +413,7 @@ else:
 # are scaffolding that must be LONG, not perfect, so a fast model is fine.
 # Override with DRAFT_REPORT_MODEL to point both passes at any model.
 # Example env value: "nvidia/nemotron-3.5-lightning"
-DRAFT_REPORT_MODEL = os.environ.get("DRAFT_REPORT_MODEL", "nvidia/nemotron-3.5-lightning").strip()
+DRAFT_REPORT_MODEL = os.environ.get("DRAFT_REPORT_MODEL", "deepseek-v4-flash").strip()
 _draft_chain_env = os.environ.get("DRAFT_REPORT_MODEL_FALLBACK_CHAIN", "").strip()
 if _draft_chain_env:
     DRAFT_REPORT_MODEL_FALLBACK_CHAIN = [
@@ -443,6 +438,22 @@ OUTPUT_MODE = "file"
 # Controls where logs are stored
 # Options: "file" (default), "db", "both"
 LOG_MODE = "file" #os.environ.get("LOG_MODE", "file")
+
+# Structured, content-rich per-run trace (deep_research/trace.py). This is the
+# opt-in "read the full prompts / thinking / tool calls / source rationale"
+# channel; it is independent of the content-free product events.
+#   LOGGING_ENABLED   Master toggle for trace records. Default ON everywhere.
+#                     Env: LOGGING_ENABLED=true|1|yes|on (0/false/no/off disables)
+#   LOG_TRUNCATION    Max characters per string in a trace record. Default None
+#                     = NO truncation. Env: LOG_TRUNCATION=<int>
+LOGGING_ENABLED: bool = os.environ.get(
+    "LOGGING_ENABLED", "true"
+).strip().lower() not in {"0", "false", "no", "off"}
+
+_log_truncation_env = os.environ.get("LOG_TRUNCATION", "").strip()
+LOG_TRUNCATION: Optional[int] = (
+    int(_log_truncation_env) if _log_truncation_env.isdigit() else None
+)
 
 
 # ===== PLATFORM AGENTS =====
@@ -512,7 +523,7 @@ BABA_PROVIDER_SLUG = "alibaba"
 #
 #   ROUTE_VIA_OPENROUTER                shared default (global toggle)
 #   SUBAGENT_ROUTE_VIA_OPENROUTER       platform research agents
-#   SUPERVISOR_ROUTE_VIA_OPENROUTER     supervisor decision + refine_draft_report +
+#   SUPERVISOR_ROUTE_VIA_OPENROUTER     supervisor decision +
 #                                       final report write. These three are CACHE-TIED:
 #                                       they must share the same provider/model so the
 #                                       prompt-cache prefix hits, so they always use the
@@ -524,7 +535,7 @@ BABA_PROVIDER_SLUG = "alibaba"
 #
 # Example:
 #   ROUTE_VIA_OPENROUTER=true                 (everyone routes via OpenRouter)
-#   SUPERVISOR_ROUTE_VIA_OPENROUTER=false     (supervisor/refine/write stay native)
+#   SUPERVISOR_ROUTE_VIA_OPENROUTER=false     (supervisor/write stay native)
 #   DRAFT_ROUTE_VIA_OPENROUTER=true           (draft goes via OpenRouter)
 ROUTE_VIA_OPENROUTER = os.environ.get("ROUTE_VIA_OPENROUTER", "").strip().lower() in {"1", "true", "yes", "on"}
 SUBAGENT_ROUTE_VIA_OPENROUTER = os.environ.get("SUBAGENT_ROUTE_VIA_OPENROUTER", "").strip().lower()
@@ -1266,7 +1277,7 @@ def get_supervisor_model(tools: list = None, max_tokens: int = None, temperature
 
     Routing resolves via SUPERVISOR_ROUTE_VIA_OPENROUTER (inheriting
     ROUTE_VIA_OPENROUTER) unless an explicit `route_via_openrouter` is given.
-    NOTE: supervisor, refine_draft_report and the final report write all build
+    NOTE: supervisor and the final report write all build
     through this factory, so they always share the same routing/provider —
     required for the prompt-cache prefix to hit.
     """

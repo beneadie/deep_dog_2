@@ -150,7 +150,7 @@ generated in code from the SOURCE REGISTRY."""
 
 FULL_CONTEXT_SOURCES_TOOLS = """
 4. **batch_save_selected**: Select which items to save at the END of research.
-   Pass items=[{{"ref": "S1", "index": 2, "reason": "why it matters"}}]. Use the
+   Pass items=[{{"ref": "S1", "index": 2, "reason": "reason": "why it matters. this should be relatively detailed and highlight the important bits which were found."}}]. Use the
    [S#] ref + 1-based index from search results."""
 
 FULL_CONTEXT_REPORT_TOOLS = ""
@@ -381,7 +381,7 @@ GENERAL_TOOL_GUIDANCE = build_general_guidance(list(_GENERAL_PLATFORM_PITCH))
 CURATION_TOOL_GUIDANCE = """
 **batch_save_selected**: Save item(s) to your curated collection by their [S#]
   ref + 1-based index. You may save a SINGLE item or MANY in one call, e.g.
-  batch_save_selected(items=[{"ref": "S1", "index": 2, "reason": "why it matters"}]).
+  batch_save_selected(items=[{"ref": "S1", "index": 2, "reason": "why it matters. this should be relatively detailed and highlight the important bits which were found."}]).
   You MUST read each item first, and give each a specific reason for why it matters.
 **list_saved**: Review all saved items and the reasons you saved them.
 **log_finding**(key, value): Record a freeform cross-item observation or

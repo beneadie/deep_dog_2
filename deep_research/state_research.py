@@ -48,6 +48,7 @@ class ResearcherState(TypedDict):
     # Platform dispatch + model config
     agent_type: str          # platform key, e.g. "reddit" | "pubmed" | "web"
     discovery: bool = False  # discovery vs research mode (was production's agent_type meaning)
+    console_agent_id: int   # display identity only; never part of the prompt
 
     # Optional per-invocation model-name fallback chain override for this
     # sub-agent (e.g. ["gemini-3-flash-preview"] or
@@ -77,6 +78,7 @@ class ResearcherState(TypedDict):
     saved_articles: dict     # identifier -> {"url", "reason", "content", "title"}
     findings_log: dict       # key -> value (cross-post observations)
     search_count: int        # total search tool calls so far
+    read_count: int          # final read count, exported for completion logging
     search_results: dict     # handle ("S1") -> {"tool": str, "items": [{"id", "title", ...}]}
 
     # Whether the one-time final save round (curation gather mode, iteration
@@ -98,6 +100,8 @@ class ResearcherOutputState(TypedDict):
     saved_articles: dict     # the curated source dict (per-agent)
     findings_log: dict       # cross-item observations
     iteration_count: int
+    search_count: int        # actual search tool calls, not legacy search_queries
+    read_count: int          # distinct items read during this invocation
     compressed_research: str  # the deliverable (sources list or report)
     source_registry: list[dict]  # ordered [{identifier, url, title, source_type, ref}]
 

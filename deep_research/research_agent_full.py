@@ -97,7 +97,7 @@ async def final_report_generation(state: AgentState):
     # CLI file write behaviour is preserved when the run's config allows file
     # output. API runs (save_report_to_file=False / output_mode="none") never
     # write files here — the host persists via structured results/events.
-    if cfg.save_report_to_file:
+    if cfg.save_report_to_file and cfg.files_enabled():
         # Unique suffix so concurrent runs never overwrite each other's file.
         stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         code = "".join(random.choices(string.ascii_lowercase, k=3))
@@ -243,7 +243,7 @@ async def subtopic_generation(state: AgentState):
         safe_title = re.sub(r'[^\w\s-]', '', brief["title"]).strip().replace(' ', '_')
         filename = f"Subtopic_Report_{safe_title}.md"
 
-        if cfg.save_report_to_file:
+        if cfg.save_report_to_file and cfg.files_enabled():
             with open(filename, "w", encoding="utf-8") as f:
                 f.write(report_content)
             if runtime.console_enabled:
@@ -255,7 +255,7 @@ async def subtopic_generation(state: AgentState):
         return {
             "title": brief["title"],
             "content": report_content,
-            "filename": filename if cfg.save_report_to_file else None
+            "filename": filename if cfg.save_report_to_file and cfg.files_enabled() else None
         }
 
     # Run all report generations in parallel

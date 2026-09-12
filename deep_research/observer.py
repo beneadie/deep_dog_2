@@ -21,6 +21,7 @@ adapts sync or async sinks.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 from collections import deque
@@ -31,6 +32,32 @@ from typing import Any, Optional
 
 from deep_research.events import ResearchEvent, deliver_event
 from deep_research.run_config import RunConfig
+from deep_research.trace import (
+    TraceRecord,
+    deliver_trace,
+    redact,
+    serialize_message,
+    truncate,
+)
+
+
+# Console progress is independent of rich traces and external event sinks.
+# Fixed labels avoid printing prompts or provider payloads here.
+_CONSOLE_PROGRESS = {
+    "run_started": "Research started",
+    "scope_started": "Creating research brief (waiting for model)",
+    "scope_completed": "Research brief ready",
+    "draft_started": "Creating initial draft (waiting for model)",
+    "draft_completed": "Initial draft ready",
+    "delegation_started": "Delegating research",
+    "subagent_started": "Research agent started",
+    "report_started": "Writing final report (waiting for model)",
+    "citations_validated": "Citation checks finished",
+    "run_completed": "Research completed",
+    "run_failed": "Research failed",
+    "run_cancelled": "Research cancelled",
+    "run_timed_out": "Research time limit reached",
+}
 
 
 @dataclass
@@ -72,13 +99,24 @@ class Observer:
         artifact_sink: Any = None,
         log_folder: Optional[Path] = None,
         console_enabled: bool = True,
+        trace_sink: Any = None,
+        credentials: Any = None,
     ):
         self.run_id = run_id
         self.config = config
         self.event_sink = event_sink
         self.artifact_sink = artifact_sink
+        self.trace_sink = trace_sink
         self.log_folder: Optional[Path] = None
         self.console_enabled = console_enabled
+
+        # Secret values to scrub from every trace record (host-supplied creds).
+        secret_values = []
+        if credentials is not None:
+            for value in (getattr(credentials, "keys", {}) or {}).values():
+                if isinstance(value, str) and len(value) >= 6:
+                    secret_values.append(value)
+        self._secrets: list[str] = secret_values
 
         # counters / registries
         self._lock = threading.Lock()
@@ -92,6 +130,13 @@ class Observer:
 
         # event queue (flushed by the runtime driver)
         self._pending: deque[ResearchEvent] = deque()
+        # Serializes concurrent flushes (driver + periodic flusher).
+        self._flush_lock = asyncio.Lock()
+
+        # structured trace records (content-rich, in-memory + optional sink)
+        self._trace_seq = 0
+        self._pending_trace: deque[TraceRecord] = deque()
+        self.trace_records: list[TraceRecord] = []
 
         if log_folder is not None:
             self.set_log_folder(log_folder)
@@ -133,16 +178,75 @@ class Observer:
         )
         with self._lock:
             self._pending.append(event)
+        if self.console_enabled and type_ in _CONSOLE_PROGRESS:
+            # Scoping may be inside a blocking call before the graph yields.
+            print(f"[Deep Dog {datetime.now():%H:%M:%S}] {_CONSOLE_PROGRESS[type_]}", flush=True)
         return event
 
     async def flush_events(self) -> None:
-        """Deliver buffered events to the sink (sync or async)."""
-        while True:
-            with self._lock:
-                if not self._pending:
-                    return
-                event = self._pending.popleft()
-            await deliver_event(self.event_sink, event)
+        """Deliver buffered events and trace records to their sinks.
+
+        Serialized so the runtime driver and the periodic flusher can run
+        concurrently without interleaving deliveries.
+        """
+        async with self._flush_lock:
+            while True:
+                with self._lock:
+                    if not self._pending:
+                        break
+                    event = self._pending.popleft()
+                await deliver_event(self.event_sink, event)
+            while True:
+                with self._lock:
+                    if not self._pending_trace:
+                        return
+                    record = self._pending_trace.popleft()
+                await deliver_trace(self.trace_sink, record)
+
+    # ── Structured trace ───────────────────────────────────────────────
+    def emit_trace(
+        self,
+        kind: str,
+        *,
+        phase: Optional[str] = None,
+        agent: Optional[str] = None,
+        platform: Optional[str] = None,
+        iteration: Optional[int] = None,
+        parent_id: Optional[str] = None,
+        **content: Any,
+    ) -> Optional[TraceRecord]:
+        """Buffer a content-rich trace record.
+
+        Returns the record, or ``None`` when trace logging is disabled. Content
+        is truncated (``config.log_truncation``) and secret-redacted before it
+        is stored or streamed. Records are retained in memory for the run and
+        delivered to ``trace_sink`` on the next ``flush_events()``.
+        """
+        if not self.config.logging_enabled:
+            return None
+        limit = self.config.log_truncation
+        safe = truncate(redact(dict(content), self._secrets), limit)
+        with self._lock:
+            self._trace_seq += 1
+            record = TraceRecord(
+                kind=kind,
+                run_id=self.run_id,
+                seq=self._trace_seq,
+                phase=phase,
+                agent=agent,
+                platform=platform,
+                iteration=iteration,
+                parent_id=parent_id,
+                content=safe,
+            )
+            self.trace_records.append(record)
+            self._pending_trace.append(record)
+        return record
+
+    def get_trace_records(self) -> list:
+        """Return a copy of the retained trace records as plain dicts."""
+        with self._lock:
+            return [r.to_dict() for r in self.trace_records]
 
     async def put_artifact(self, name: str, data: Any) -> None:
         await deliver_artifact(self.artifact_sink, name, data)
@@ -228,6 +332,21 @@ class Observer:
             "tool_calls": tool_calls,
         }
         self.conductor_turns.append(turn_data)
+        reasoning = ""
+        if hasattr(response, "additional_kwargs"):
+            reasoning = str(response.additional_kwargs.get("reasoning_content") or "")
+        self.emit_trace(
+            "supervisor_turn",
+            phase="supervisor",
+            agent="supervisor",
+            iteration=iteration,
+            system_prompt=system_prompt,
+            messages=[serialize_message(m) for m in (messages or [])],
+            response=response_content,
+            thinking=reasoning,
+            tool_calls=tool_calls,
+            elapsed_minutes=round(elapsed_minutes, 2),
+        )
         if self.config.log_mode in ("file", "both") and self.log_folder is not None:
             try:
                 log_file = self.log_folder / "conductor_log.json"
@@ -239,13 +358,18 @@ class Observer:
 
     def log_sub_agent(self, research_topic: str, system_prompt: str, compressed_research: str,
                       agent_type: str = "research_agent", search_queries: list = None,
-                      agent_number: Optional[int] = None) -> None:
+                      agent_number: Optional[int] = None, discovery: bool = False,
+                      output_mode: Optional[str] = None) -> None:
         with self._lock:
             self._sub_agent_counter += 1
             number = agent_number if agent_number is not None else self._sub_agent_counter
+        mode = "discovery" if discovery else "research"
         log_data = {
             "agent_type": agent_type,
             "agent_number": number,
+            "mode": mode,
+            "discovery": bool(discovery),
+            "output_mode": output_mode,
             "timestamp": datetime.now().isoformat(),
             "research_topic": research_topic,
             "search_queries": search_queries or [],
@@ -254,6 +378,19 @@ class Observer:
             + ("..." if compressed_research and len(compressed_research) > 5000 else ""),
         }
         self.subagent_logs.append(log_data)
+        self.emit_trace(
+            "subagent_findings",
+            phase="subagent",
+            agent=agent_type,
+            platform=agent_type,
+            mode=mode,
+            discovery=bool(discovery),
+            output_mode=output_mode,
+            research_topic=research_topic,
+            search_queries=list(search_queries or []),
+            system_prompt=system_prompt,
+            compressed_research=compressed_research or "",
+        )
         if self.config.log_mode not in ("file", "both") or self.log_folder is None:
             return
         try:

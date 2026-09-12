@@ -7,11 +7,10 @@ including web search capabilities and content summarization tools.
 """
 
 from pathlib import Path
-from typing_extensions import Annotated, List, Literal, Optional
+from typing_extensions import List, Literal, Optional
 import aiohttp
 import asyncio
 
-from langchain_core.tools import tool, InjectedToolArg
 from tavily import TavilyClient
 
 from deep_research.config import EXA_SEARCH_MAX_CHARS
@@ -345,31 +344,3 @@ def format_search_output(summarized_results: dict) -> str:
         formatted_output += "-" * 80 + "\n"
 
     return formatted_output
-
-# no-op to trigger a refinement of the draft report in the supervisor subgraph.
-# The actual refinement is done in the multi_agent_supervisor.supervisor_tools.refine_draft_model tool,
-# which is called directly by the supervisor model against the cached conversation prefix.
-# This stub keeps the tool registered so the supervisor model can still select it.
-@tool(parse_docstring=True)
-async def refine_draft_report(research_brief: Annotated[str, InjectedToolArg],
-                        findings: Annotated[str, InjectedToolArg],
-                        draft_report: Annotated[str, InjectedToolArg],
-                        target_language: Annotated[str, InjectedToolArg]):
-    """Refine draft report
-
-    Synthesizes all research findings into a comprehensive draft report
-
-    Args:
-        research_brief: user's research request
-        findings: collected research findings for the user request
-        draft_report: draft report based on the findings and user request
-
-    Returns:
-        refined draft report
-    """
-
-    # Intentional no-op: the supervisor subgraph executes refine_draft_report
-    # directly against the cached conversation prefix (refine_draft_model in
-    # multi_agent_supervisor.supervisor_tools). This schema-only stub keeps the
-    # tool registered so the supervisor model can still select it.
-    return ""

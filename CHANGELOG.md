@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Restore the original engine's research timing: the supervisor routes to
+  final writing after the research window plus one minute, and writing and
+  citation processing can finish beyond that window. Remove the package's
+  whole-run cancellation timer, `RunConfig.max_duration_minutes`, and
+  `RuntimeOptions.deadline_override_seconds`. Configure the research window
+  with `research_time_min_minutes` / `research_time_max_minutes` instead.
+  Explicit host cancellation and existing individual request/subagent timeouts
+  remain available.
+
 ## 2.0.1 — product release (concurrency-safe engine)
 
 ### Agent selection (breaking default change)
@@ -32,13 +43,39 @@
 - `config.model_required_keys(model_name, route)` exposes the model→key
   mapping used by chain filtering and validation.
 
-### Package version / compatibility
+### Structured trace logging (new)
+- New content-rich trace channel (`deep_research/trace.py`), independent of the
+  content-free product events. Every record carries a full UUID4 `event_id` plus
+  a monotonic `seq`, `run_id`, `phase`, `agent`, `platform`, `iteration` and an
+  optional `parent_id`, so production logs can be correlated and streamed.
+- Captures: run prompt, research brief, draft report, full sub-agent system
+  prompts + message history, sub-agent model thinking (`reasoning_content`),
+  tool calls with args, source-save rationale, supervisor turns/thinking,
+  delegation and sub-agent findings, and the final report.
+- Toggle + truncation are per-run config:
+  `RunConfig.logging_enabled` (env `LOGGING_ENABLED`, default **on**) and
+  `RunConfig.log_truncation` (env `LOG_TRUNCATION`, default **None = no
+  truncation**).
+- Streaming via `RuntimeOptions.trace_sink` (sync/async); records are also
+  retained in memory for the run and returned as `ResearchResult.logs`.
+  `TraceCollector` is provided for tests/simple hosts.
+- Secret safety: any host-supplied credential value (length ≥ 6) is scrubbed to
+  `[REDACTED]` from every record before it is stored or streamed.
+- Trace field naming: assistant text is `response` and model chain-of-thought is
+  `thinking` on both `supervisor_turn` and `subagent_response` (previously the
+  sub-agent used `content`/`reasoning`, colliding with the record's own
+  `content` payload). Sub-agent response text now also normalizes block-style
+  provider content via `extract_text_from_response` instead of dropping it.
+- Liveness fix: a background flusher drains events/trace every ~200 ms for the
+  duration of a run, so records stream **while** nested nodes block the
+  top-level graph driver (the supervisor subgraph and awaited sub-agents).
+  Previously records emitted inside those nodes were buffered until the
+  subgraph returned — appearing only at the end, or lost entirely on a crash.
+  Flushes are serialized (`Observer._flush_lock`) so the driver and the flusher
+  cannot interleave.
 
-First tagged product release of the private Deep Dog 2 repository, prepared
-for integration into `research_agent_api`.
-
 ### Package version / compatibility
-- Distribution: `deep-dog-engine==2.0.1` (import package remains `deep_research`).
+- Distribution: `deep-dog-2==2.0.1` (import package remains `deep_research`).
 - Compatible API adapter: `research_agent_api` adapter version `>=1.0.0` must
   call only `deep_research.integration.run_research` and its typed inputs.
 - Python `>=3.11`. LangChain/LangGraph versions unchanged from `requirements.txt`.
@@ -67,12 +104,12 @@ for integration into `research_agent_api`.
   enabled agents, search engine, prompt version, output mode, language,
   subtopics, trace) with env-defaults -> request overrides -> hard safety caps.
 - `RuntimeOptions` (event sink, artifact sink, cancellation, external LangGraph
-  checkpointer, run/thread id, output dir, deadline override).
+  checkpointer, run/thread id, output dir).
 - Structured events: run/scope/draft/supervisor/subagent/source/report/citation
   lifecycle events — never chain-of-thought or secrets.
 - Cancellation is cooperative (token or `() -> bool`), checked between steps.
-- Deadlines are real: the driver wraps execution in a hard timeout and nodes
-  see the remaining budget.
+- Research time limits guide the supervisor to final writing; they do not
+  cancel the run (restored in the unreleased fix above).
 
 ### Migration / checkpoint compatibility
 - `config_snapshot` is stored in checkpointed graph state (no clients, no

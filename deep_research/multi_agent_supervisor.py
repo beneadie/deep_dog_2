@@ -35,7 +35,7 @@ from deep_research.state_multi_agent_supervisor import (
     AGENT_TOOL_SCHEMAS,
     AGENT_DESCRIPTIONS,
 )
-from deep_research.utils import get_today_str, refine_draft_report, extract_text_from_response
+from deep_research.utils import get_today_str, extract_text_from_response
 from deep_research.citation_utils import remap_codes, build_final_registry, finalize_citations
 from deep_research.agents.shared.tools import think_tool
 from deep_research.config import looks_like_refusal
@@ -58,8 +58,6 @@ def _active_supervisor_tools():
     runtime = get_runtime()
     cfg = runtime.config
     tools = [ResearchComplete, think_tool]
-    if runtime.prompts.refine_enabled():
-        tools.append(refine_draft_report)
     for name in cfg.enabled_agents:
         if name in AGENT_TOOL_SCHEMAS:
             tools.append(AGENT_TOOL_SCHEMAS[name])
@@ -90,19 +88,47 @@ def _final_report_writer_model():
     return model
 
 
-def _refine_draft_model():
-    runtime = get_runtime()
-    model = getattr(runtime, "_refine_draft_model", None)
-    if model is None:
-        model = runtime.models.supervisor(max_tokens=32000)
-        setattr(runtime, "_refine_draft_model", model)
-    return model
-
-
 def _emit(type_: str, *, phase: str | None = None, agent: str | None = None,
           platform: str | None = None, iteration: int | None = None, **payload) -> None:
     get_runtime().observer.emit(type_, phase=phase, agent=agent, platform=platform,
                                 iteration=iteration, **payload)
+
+
+async def _run_subagent_with_progress(agent_graph, agent_input: dict, *,
+                                      timeout: float, agent_id: int,
+                                      tool_name: str, iteration: int):
+    """Observe each task as it finishes; leave batch result ordering unchanged."""
+    discovery = bool(agent_input.get("discovery", False))
+    metadata = dict(
+        phase="subagent", agent=tool_name, platform=tool_name,
+        iteration=iteration, agent_id=agent_id,
+        research_topic=agent_input.get("research_topic", ""),
+        discovery=discovery, mode="discovery" if discovery else "research",
+    )
+    try:
+        result = await asyncio.wait_for(agent_graph.ainvoke(agent_input), timeout=timeout)
+    except (Exception, asyncio.CancelledError) as exc:
+        status = "cancelled" if isinstance(exc, asyncio.CancelledError) else (
+            "timed out" if isinstance(exc, asyncio.TimeoutError) else "failed")
+        elapsed = console_logger.log_sub_agent_failed(
+            agent_id, discovery=discovery, status=status)
+        _emit(_events.SUBAGENT_FAILED, **metadata, error=type(exc).__name__,
+              elapsed_seconds=elapsed)
+        raise
+
+    counts = dict(
+        search_count=int(result.get("search_count", 0)),
+        read_count=int(result.get("read_count", 0)),
+        selected_count=len(result.get("saved_articles") or {}),
+    )
+    log_complete = (console_logger.log_discovery_complete if discovery
+                    else console_logger.log_sub_agent_complete)
+    elapsed = log_complete(agent_id, **counts)
+    _emit(_events.SUBAGENT_COMPLETED, **metadata, **counts,
+          source_count=len(result.get("source_registry") or []),
+          elapsed_seconds=elapsed)
+    return result
+
 
 def get_notes_from_tool_calls(messages: list[BaseMessage]) -> list[str]:
     """Extract research notes from ToolMessage objects in supervisor message history.
@@ -251,7 +277,6 @@ def _supervisor_limits():
         "salvage_fraction": float(cfg.findings_salvage_time_fraction),
         "subagent_timeout_seconds": int(cfg.subagent_timeout_seconds),
         "supervisor_timeout_seconds": int(cfg.supervisor_timeout_seconds),
-        "refine_timeout_seconds": int(cfg.refine_timeout_seconds),
     }
 
 def _build_subagent_tools_block(enabled: list[str]) -> str:
@@ -484,7 +509,7 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
         for tool_call in most_recent_message.tool_calls
     )
 
-    # Calculate elapsed minutes for hard stop check
+    # Match the original engine: elapsed research time routes to writing.
     start_time = state.get("start_time", 0.0)
     elapsed_minutes = 0.0
     if start_time > 0:
@@ -507,7 +532,7 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
         research_complete and not has_research_calls and not denoise_forces_continue
     ):
         if exceeded_time:
-             print(f"\n{Colors.RED}Hard stop triggered: Research exceeded {limits['strict_minutes']} minutes limit.{Colors.RESET}")
+             print(f"\n{Colors.YELLOW}Research window reached ({limits['strict_minutes']} minutes); moving to final report writing.{Colors.RESET}")
         should_end = True
         next_step = "write_final_report"
 
@@ -547,11 +572,6 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                 if tool_call["name"] == "think_tool"
             ]
 
-            refine_report_calls = [
-                tool_call for tool_call in most_recent_message.tool_calls
-                if tool_call["name"] == "refine_draft_report"
-            ]
-
             # All sub-agent tool calls (ResearchWeb, ResearchGeneral,
             # ResearchReddit, etc.) handled uniformly.
             subagent_calls = [
@@ -564,6 +584,14 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                 observation = await think_tool.ainvoke(tool_call["args"])
                 if runtime.config.enable_research_trace:
                     log_trace_supervisor_reaction(tool_call["args"].get("reflection", ""))
+                runtime.observer.emit_trace(
+                    "supervisor_thinking",
+                    phase="supervisor",
+                    agent="supervisor",
+                    iteration=research_iterations,
+                    purpose=tool_call["args"].get("purpose", "denoise"),
+                    reflection=tool_call["args"].get("reflection", ""),
+                )
                 console_logger.log_supervisor_thinking(
                     tool_call["args"].get("purpose", "denoise"),
                     tool_call["args"].get("reflection", ""),
@@ -590,6 +618,17 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                         agent_ids.append(console_logger.log_sub_agent_start(topic))
                     if runtime.config.enable_research_trace:
                         log_trace_delegation(topic)
+
+                    runtime.observer.emit_trace(
+                        "delegation",
+                        phase="supervisor",
+                        agent=tc["name"],
+                        platform=tc["name"],
+                        iteration=research_iterations,
+                        research_topic=topic,
+                        discovery=bool(discovery),
+                        mode="discovery" if discovery else "research",
+                    )
 
                     # Structured events: delegation + subagent start.
                     _emit(
@@ -620,6 +659,7 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                         "research_topic": topic,
                         "target_language": target_language,
                         "discovery": discovery,
+                        "console_agent_id": agent_ids[-1],
                         "chinese_supervisor_international_subagent": runtime.config.chinese_supervisor_international_subagent,
                     }
                     # Supervisor may override the sub-agent's total read budget
@@ -628,9 +668,11 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                     if max_total_reads is not None:
                         agent_input["max_total_reads"] = max_total_reads
                     coros.append(
-                        asyncio.wait_for(
-                            agent_graph.ainvoke(agent_input),
-                            timeout=subagent_timeout + 30
+                        _run_subagent_with_progress(
+                            agent_graph, agent_input,
+                            timeout=subagent_timeout + 30,
+                            agent_id=agent_ids[-1], tool_name=tc["name"],
+                            iteration=research_iterations,
                         )
                     )
 
@@ -638,32 +680,14 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
 
                 for i, (tc, result) in enumerate(zip(subagent_calls, all_results)):
                     topic = tc["args"].get("research_topic", "")
+                    is_discovery = bool(tc["args"].get("discovery", False))
                     if isinstance(result, BaseException):
                         logger.warning(f"Subagent failed for: {topic} - {result}")
                         compressed = f"Subagent timed out: {topic}"
                         sub_registry = []
-                        _emit(
-                            _events.SUBAGENT_FAILED,
-                            phase="subagent",
-                            agent=tc["name"],
-                            platform=tc["name"],
-                            iteration=research_iterations,
-                            research_topic=topic,
-                            error=type(result).__name__,
-                        )
                     else:
                         compressed = result.get("compressed_research", "Error")
                         sub_registry = result.get("source_registry", []) or []
-                        _emit(
-                            _events.SUBAGENT_COMPLETED,
-                            phase="subagent",
-                            agent=tc["name"],
-                            platform=tc["name"],
-                            iteration=research_iterations,
-                            research_topic=topic,
-                            source_count=len(sub_registry),
-                            search_count=len(result.get("search_queries", []) or []),
-                        )
 
                     # Remap this sub-report's local citation codes ([S2#3]) to
                     # globally-unique codes ([A{agent_id}-S2#3]) and merge its
@@ -701,15 +725,14 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                     )
                     log_sub_agent(
                         research_topic=topic,
-                        system_prompt="(see agents/base.py for sub-agent prompt)",
+                        system_prompt="(full prompt emitted as a 'subagent_prompt' trace record)",
                         compressed_research=compressed,
                         agent_type=tc["name"],
                         search_queries=search_queries,
+                        discovery=is_discovery,
+                        output_mode=(result.get("output_mode")
+                                     if not isinstance(result, BaseException) else None),
                     )
-                    if tc["args"].get("discovery", False):
-                        console_logger.log_discovery_complete(agent_ids[i], len(search_queries))
-                    else:
-                        console_logger.log_sub_agent_complete(agent_ids[i], len(search_queries))
 
                     if not isinstance(result, BaseException):
                         sub_curated = result.get("curated_sources", [])
@@ -738,89 +761,6 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                 else:
                     print(f"\n{Colors.YELLOW}[WARNING] All {total_agents} subagents failed. "
                           f"Returning errors to supervisor for retry decision.{Colors.RESET}")
-
-            # Handle refine_draft_report calls (after research + discovery results are collected).
-            # Cache-friendly: reuse the supervisor's byte-stable system prompt + the
-            # accumulated conversation (plus this turn's fresh research results) and
-            # append a trailing refine instruction, so the provider's prompt cache
-            # serves the research-history prefix and only the instruction + generation
-            # are paid fresh. The refined draft is still returned as a ToolMessage,
-            # so the supervisor loop continues exactly as before (no cache break).
-            #
-            # The trailing supervisor decision requested refine_draft_report, whose
-            # result cannot exist until this model call returns — an assistant
-            # tool_calls message without its matching tool result is rejected by
-            # the API. So rebuild the turn: keep the byte-stable prior history,
-            # drop the (not-yet-answered) refine tool call, and re-attach only the
-            # calls answered this turn (think_tool + sub-agent findings) so the
-            # refiner still sees the accumulated research.
-            if refine_report_calls:
-                system_message = _build_supervisor_system_message(state)
-                refine_instruction = (
-                    runtime.prompts.get("refine_draft_report_instruction", "")
-                    or "Refine the draft report using the new findings, in {target_language}."
-                )
-                refine_instruction = refine_instruction.format(
-                    date=get_today_str(),
-                    target_language=target_language,
-                )
-            prior_messages = list(supervisor_messages[:-1])
-            non_refine_calls = [
-                tc for tc in most_recent_message.tool_calls
-                if tc["name"] != "refine_draft_report"
-            ]
-            completed_refine_calls = []
-            for tool_call in refine_report_calls:
-                console_logger.log_refine_start()
-                # Reconstruct this turn's decision with every tool call that has
-                # been answered so far (think_tool + sub-agents + any earlier
-                # refine results this turn), so the history stays API-valid and
-                # the refiner sees the accumulated findings + prior draft.
-                answered_calls = non_refine_calls + completed_refine_calls
-                answered_ids = {tc["id"] for tc in answered_calls}
-                answered_tool_msgs = [
-                    tm for tm in tool_messages if tm.tool_call_id in answered_ids
-                ]
-                messages = [SystemMessage(content=system_message)] + prior_messages
-                if answered_calls:
-                    messages.append(
-                        AIMessage(
-                            content=getattr(most_recent_message, "content", "") or "",
-                            tool_calls=answered_calls,
-                        )
-                    )
-                    messages.extend(answered_tool_msgs)
-                messages.append(HumanMessage(content=refine_instruction))
-                response = None
-                for attempt in (1, 2):
-                    try:
-                        response = await asyncio.wait_for(
-                            _refine_draft_model().ainvoke(messages),
-                            timeout=limits["refine_timeout_seconds"],
-                        )
-                        break
-                    except Exception:
-                        logger.warning(
-                            "refine_draft_report failed (attempt %d) — retrying",
-                            attempt,
-                            exc_info=(attempt == 2),
-                        )
-                if response is not None:
-                    draft_report = extract_text_from_response(response.content)
-                else:
-                    logger.warning(
-                        "refine_draft_report failed twice — keeping current draft unchanged"
-                    )
-
-                tool_messages.append(
-                    ToolMessage(
-                        content=draft_report,
-                        name=tool_call["name"],
-                        tool_call_id=tool_call["id"],
-                    )
-                )
-                completed_refine_calls.append(tool_call)
-                console_logger.log_refine_complete()
 
             # Safety net: guarantee every tool_call in the decision message has a
             # matching ToolMessage before returning. Normally a no-op (all calls
@@ -910,17 +850,6 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
             goto=next_step,
             update=update
         )
-    elif len(refine_report_calls) > 0:
-        return Command(
-            goto=next_step,
-            update={
-                "supervisor_messages": tool_messages,
-                "draft_report": draft_report,
-                "curated_sources": all_curated_sources,
-                "source_registry": new_registry_entries,
-                "consecutive_failures": 0 if not turn_failed else consecutive_failures,
-            }
-        )
     else:
         return Command(
             goto=next_step,
@@ -995,7 +924,7 @@ async def write_final_report(state: SupervisorState) -> dict:
     )
 
     # The supervisor's trailing decision message (e.g. ResearchComplete, or a
-    # refine_draft_report call that never got a tool result) is an AIMessage
+    # tool call that never got a tool result) is an AIMessage
     # with tool_calls. The API rejects an assistant tool_calls message that
     # isn't followed by matching tool messages, so drop that trailing decision
     # before assembling the write conversation.

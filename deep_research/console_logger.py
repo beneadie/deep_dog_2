@@ -15,6 +15,7 @@ concurrent runs never share counters.
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
+from datetime import datetime
 
 from deep_research.runtime import get_runtime
 
@@ -41,7 +42,6 @@ EMOJI_SEARCH = "🔍"
 EMOJI_TOOLS = "📋"
 EMOJI_RESEARCH = "🔎"
 EMOJI_DISCOVERY = "🧭"
-EMOJI_REFINE = "✏️"
 EMOJI_COMPLETE = "✅"
 EMOJI_ERROR = "❌"
 
@@ -121,8 +121,6 @@ def log_supervisor_tool_calls(tool_calls: List[Dict[str, Any]]) -> None:
                 print(f"      {connector} {Colors.YELLOW}{Colors.BOLD}{name} [DISCOVERY MODE]:{Colors.RESET} \"{topic}\"")
             else:
                 print(f"      {connector} {Colors.CYAN}{name}:{Colors.RESET} \"{topic}\"")
-        elif name == "refine_draft_report":
-            print(f"      {connector} {Colors.GREEN}refine_draft_report{Colors.RESET}")
         elif name == "think_tool":
             reflection = args.get("reflection", "")
             print(f"      {connector} {Colors.GRAY}think_tool:{Colors.RESET} \"{reflection}\"")
@@ -169,13 +167,32 @@ def log_sub_agent_tool_call(agent_id: int, tool_name: str, args: Dict[str, Any])
         print(f"   │    {tool_name}: {args}")
 
 
-def log_sub_agent_complete(agent_id: int, search_count: int = 0) -> None:
-    """Log completion of a sub-agent research task."""
+def _log_agent_result(agent_id: int, status: str, *, discovery: bool = False,
+                      search_count: int = 0, read_count: int = 0,
+                      selected_count: int = 0) -> float:
+    """Log at task completion, returning that agent's elapsed time."""
     elapsed = get_runtime().observer.mark_subagent_end(agent_id)
     if not _console():
-        return
-    print(f"   │    {EMOJI_COMPLETE} {Colors.GREEN}Research complete ({search_count} searches, {elapsed:.1f}s){Colors.RESET}")
-    print(f"   └{'─' * 65}")
+        return elapsed
+    label = "Discovery agent" if discovery else "Sub-agent"
+    counts = (f"{search_count} searches | {read_count} reads | {selected_count} selected | "
+              if status == "complete" else "")
+    color = Colors.GREEN if status == "complete" else Colors.RED
+    print(f"   │ [{datetime.now():%H:%M:%S}] {color}{label} #{agent_id} {status}"
+          f" | {counts}{elapsed:.1f}s{Colors.RESET}", flush=True)
+    print(f"   └{'─' * 65}", flush=True)
+    return elapsed
+
+
+def log_sub_agent_complete(agent_id: int, search_count: int = 0, *,
+                           read_count: int = 0, selected_count: int = 0) -> float:
+    return _log_agent_result(agent_id, "complete", search_count=search_count,
+                             read_count=read_count, selected_count=selected_count)
+
+
+def log_sub_agent_failed(agent_id: int, *, discovery: bool = False,
+                         status: str = "failed") -> float:
+    return _log_agent_result(agent_id, status, discovery=discovery)
 
 
 # ===== DISCOVERY AGENT LOGGING =====
@@ -196,28 +213,14 @@ def log_discovery_start(brief: str) -> int:
     return agent_id
 
 
-def log_discovery_complete(agent_id: int, search_count: int = 0) -> None:
-    """Log completion of a discovery-mode task."""
-    elapsed = get_runtime().observer.mark_subagent_end(agent_id)
-    if not _console():
-        return
-    print(f"   │    {EMOJI_COMPLETE} {Colors.YELLOW}Discovery complete ({search_count} searches, {elapsed:.1f}s){Colors.RESET}")
-    print(f"   └{'─' * 65}")
+def log_discovery_complete(agent_id: int, search_count: int = 0, *,
+                           read_count: int = 0, selected_count: int = 0) -> float:
+    return _log_agent_result(agent_id, "complete", discovery=True,
+                             search_count=search_count, read_count=read_count,
+                             selected_count=selected_count)
 
 
 # ===== UTILITY LOGGING =====
-
-def log_refine_start() -> None:
-    """Log the start of draft report refinement."""
-    if _console():
-        print(f"   {EMOJI_REFINE} {Colors.GREEN}Refining draft report with new findings...{Colors.RESET}")
-
-
-def log_refine_complete() -> None:
-    """Log completion of draft report refinement."""
-    if _console():
-        print(f"   {EMOJI_COMPLETE} {Colors.GREEN}Draft report refined{Colors.RESET}")
-
 
 def log_research_complete() -> None:
     """Log that all research is complete."""

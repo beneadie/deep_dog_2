@@ -52,6 +52,8 @@ def log_sub_agent(
     compressed_research: str,
     agent_type: str = "research_agent",
     search_queries: list = None,
+    discovery: bool = False,
+    output_mode: str = None,
 ) -> None:
     """Log a sub-agent's full lifecycle."""
     get_runtime().observer.log_sub_agent(
@@ -60,6 +62,8 @@ def log_sub_agent(
         compressed_research=compressed_research,
         agent_type=agent_type,
         search_queries=search_queries,
+        discovery=discovery,
+        output_mode=output_mode,
     )
 
 

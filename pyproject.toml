@@ -3,18 +3,19 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "deep-dog-engine"
+name = "deep-dog-2"
 version = "2.0.1"
-description = "Deep Dog 2: a private, versioned, concurrency-safe deep research engine (product distribution)."
+description = "Deep Dog 2: a configurable multi-agent research engine with cited reports."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Proprietary (private product repository)" }
-authors = [{ name = "Deep Dog product team" }]
+license = { file = "LICENSE" }
+authors = [{ name = "Benjamin Andrew Eadie" }]
 keywords = ["research", "agents", "langgraph", "deep-research"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
     "Framework :: LangGraph",
+    "License :: OSI Approved :: MIT License",
 ]
 dependencies = [
     "python-dotenv>=1.0",
@@ -39,8 +40,9 @@ google = ["langchain-google-genai>=4.0", "google-genai>=1.0"]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
 
 [project.urls]
-# Private product repository. The public open-source upstream is the separate
-# "Deep Dog 2" repository (see CHANGELOG for the sync/merge procedure).
+Homepage = "https://github.com/beneadie/deep_dog_2"
+Repository = "https://github.com/beneadie/deep_dog_2"
+Issues = "https://github.com/beneadie/deep_dog_2/issues"
 
 [tool.setuptools.packages.find]
 include = ["deep_research*"]
