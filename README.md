@@ -4,6 +4,26 @@ Turn a question into a cited Markdown report. A supervisor plans the research, d
 
 This is the **Python package version** of Deep Dog 2. Call `run_research()` with a per-run configuration to choose models, search, agent types and research budgets without editing the engine.
 
+## Official benchmark results
+
+At the time of publication, Deep Dog 2 ranked **5th overall** and **1st among open-source research agents** on the [DeepResearch Bench](https://huggingface.co/spaces/muset-ai/DeepResearch-Bench-Leaderboard). The published run used a relatively economical profile: a 15-minute research window, a 20-iteration supervisor cap, at most 3 Exa searches per sub-agent, DeepSeek V4 Pro as supervisor, and DeepSeek V4 Flash for sub-agents.
+
+![DeepResearch Bench rankings showing Deep Dog 2 in fifth place](assets/deep-dog-2-ranking.png)
+
+*DeepResearch Bench rankings, with Deep Dog 2 shown in fifth place.*
+
+| Metric | Score |
+|---|---:|
+| Overall | **0.5432** |
+| Comprehensiveness | 0.5468 |
+| Insight | 0.5532 |
+| Instruction Following | 0.5426 |
+| Readability | 0.5105 |
+
+These results are a historical reproducibility profile, not a promise about current defaults. The current package defaults to DeepSeek V4 Flash for all model roles and uses a different supervisor iteration default. Benchmark rankings and scores may change as the leaderboard changes.
+
+For a detailed explanation of the reflection and delegation methods used, see the engineering article [Deep Dog 2: How Reflection and Structured Delegation Improve Supervisor–Subagent Research Systems](https://beneadie01.substack.com/p/deep-dog-2-how-reflection-delegation).
+
 ## Quickstart
 
 Requires **Python 3.11+**, LLM API access and a search API key. From this repository's root:
