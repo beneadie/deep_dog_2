@@ -251,7 +251,7 @@ The `scripts/` examples and `.env.example` belong to the repository checkout. A 
 
 ## Demo
 
-[Watch the Deep Dog 2 demo video](./deepdog2_demo.mp4)
+[Watch the Deep Dog 2 demo video](./deepdog2_demo_web_hd.mp4)
 
 
 
