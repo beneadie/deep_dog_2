@@ -4,8 +4,6 @@ Turn a question into a cited Markdown report. A supervisor plans the research, d
 
 This is the **Python package version** of Deep Dog 2. Call `run_research()` with a per-run configuration to choose models, search, agent types and research budgets without editing the engine.
 
-Created by [Benjamin Andrew Eadie](https://beneadie.netlify.app/).
-
 ## Official benchmark results
 
 At the time of publication, Deep Dog 2 ranked **5th overall** and **1st among open-source research agents** on the [DeepResearch Bench](https://huggingface.co/spaces/muset-ai/DeepResearch-Bench-Leaderboard). The published run used a relatively economical profile: a 15-minute research window, a 20-iteration supervisor cap, at most 3 Exa searches per sub-agent, DeepSeek V4 Pro as supervisor, and DeepSeek V4 Flash for sub-agents.
@@ -80,6 +78,19 @@ At the time of publication, Deep Dog 2 ranked **5th overall** and **1st among op
 | Readability | 0.5105 |
 
 These results are a historical reproducibility profile, not a promise about current defaults. The current package defaults to DeepSeek V4 Flash for all model roles and uses a different supervisor iteration default. Benchmark rankings and scores may change as the leaderboard changes.
+
+### Estimated cost comparison
+
+The following is a pricing-based estimate for one research task. It is not a controlled cost benchmark: the systems use different architectures, search providers and token budgets.
+
+| System and configuration | Estimated cost per task | Basis |
+|---|---:|---|
+| **Deep Dog 2** — DeepSeek V4 Flash (off-peak) + Exa; 15-minute maximum, 20 supervisor iterations, at most 3 searches per sub-agent | **$0.25–$0.60** | Approximately **$0.20–$0.40** in DeepSeek inference and **$0.05–$0.20** in Exa usage for this configuration |
+| **Gemini Deep Research** — Google’s published typical-task estimate | **$1–$3** | Google estimates about 80 search queries, 250k input tokens and 60k output tokens for a moderate task |
+
+Deep Dog 2’s range is an estimate based on the [DeepSeek V4 pricing (off-peak)](https://api-docs.deepseek.com/quick_start/pricing/) and [Exa pricing](https://exa.ai/pricing), using off-peak DeepSeek rates. Actual cost varies with prompt length, model output, cache hits, the number of delegated agents and how quickly the supervisor concludes. Exa currently advertises **$20 in sign-up credits and $10 in credits each month**; [Tavily](https://docs.tavily.com/documentation/api-credits) provides **1,000 free credits per month**, equivalent to $8 at its $0.008 per-credit pay-as-you-go rate.
+
+Costs are easy to change by changing the configuration: shorten the research window, lower the supervisor or sub-agent iteration limits, reduce searches per sub-agent, or use fewer agents. [Nemotron 3.5 Lightning](https://openrouter.ai/nvidia/nemotron-3.5-lightning) has also worked successfully as a sub-agent model in Deep Dog 2 and costs approximately half as much as DeepSeek V4 Flash in the tested setup. Google’s Gemini figures are its own published estimates; see the [Gemini Deep Research pricing section](https://ai.google.dev/gemini-api/docs/deep-research#estimated-costs) for the assumptions behind them.
 
 For a detailed explanation of the reflection and delegation methods used, see the engineering article [Deep Dog 2: How Reflection and Structured Delegation Improve Supervisor–Subagent Research Systems](https://beneadie01.substack.com/p/deep-dog-2-how-reflection-delegation).
 
@@ -365,9 +376,9 @@ python -m pip install -e ".[dev]"
 python -m pytest
 ```
 
-Normal tests use fake providers and do not require paid API calls. Dependencies are declared in [pyproject.toml](pyproject.toml); `requirements.txt` delegates to it.
+The normal test suite is offline and does not require API keys or paid calls. It replaces the model factory with scripted `FakeLLM` objects that return canned responses, allowing the tests to exercise graph wiring, routing, events, cancellation and citation handling quickly and deterministically. These tests check the engine's behavior; they do not measure model quality or verify that a provider account works. The fakes are defined in [tests/conftest.py](tests/conftest.py).
 
-Manual platform diagnostics live in [scripts/test_tools.py](scripts/test_tools.py). Run `python scripts/test_tools.py --help` for options. Platform checks contact live providers and need their credentials; they are separate from the normal test suite.
+For live integration checks, use [scripts/test_tools.py](scripts/test_tools.py) with `python scripts/test_tools.py --help`. Those diagnostics run selected platform tools against real public services or providers; some checks require credentials and may use API quota. They are separate from the normal test suite. Dependencies are declared in [pyproject.toml](pyproject.toml); `requirements.txt` delegates to it.
 
 Only the `OPEN` prompt workflow is supported. Older configurations using `prompt_version="LEGACY"` or `PROMPT_VERSION=LEGACY` must switch to `OPEN`. The legacy example-report prompts and iterative draft-refinement tool have been removed; the initial draft and final report stages remain.
 
