@@ -6,16 +6,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Put DEEPSEEK_API_KEY and EXA_API_KEY in the repository's .env file.
-load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+load_dotenv()
 
-from deep_research.integration import run_research  # noqa: E402
-
-# Change this to your research question. All engine settings use defaults.
-QUESTION = "What are the main benefits and limitations of sodium-ion batteries for home energy storage?"
+from deep_research.integration import RunConfig, run_research  # noqa: E402
 
 
 async def main():
-    result = await run_research(QUESTION)
+    result = await run_research("What are the main benefits and limitations of sodium-ion batteries for home energy storage?")
     print(f"Status: {result.status}")
     if result.failure:
         print(result.failure)

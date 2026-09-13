@@ -2,7 +2,7 @@
 
 Turn a question into a cited Markdown report. A supervisor plans the research, delegates work to platform agents, reviews their findings, and writes the final report.
 
-This is the **Python package version** of Deep Dog 2. Call `run_research()` with a per-run configuration to choose models, search, agent types and research budgets without editing the engine.
+Deep Dog 2 installs directly from GitHub as a **Python package** in your existing project. Call `run_research()` with just a question to use the defaults, or pass a per-run configuration to choose models, search, agent types and research budgets. See the [quickstart](#quickstart) for pip and uv installation, or [clone the source](#work-from-a-source-checkout) to edit the engine and run the repository examples.
 
 ## Official benchmark results
 
@@ -12,17 +12,17 @@ At the time of publication, Deep Dog 2 ranked **5th overall** and **1st among op
 
 - **Role-specific models** — use different models for the supervisor, initial draft, and platform sub-agents.
 - **Reflection and delegation** — the supervisor plans research, delegates distinct questions, evaluates findings, and decides whether more work is needed.
-- **Platform specialization** — Web, Reddit, and Substack agents are enabled by default, with General, PubMed, Arxiv, and SEC agents available for extension.
+- **Platform specialization** — Web is enabled by default; Reddit, Substack, General, PubMed, Arxiv, and SEC agents can be enabled through configuration.
 - **Evidence-first reports** — findings are collected into a source registry, then final inline citations and the `## Sources` section are validated before the report is returned.
 - **Operational control** — time limits, iteration caps, search budgets, fallback chains, and output modes can be tuned for local experiments or more economical deployments.
 
 ## Features
 
-- **Supervisor + sub-agent architecture** — configurable platform agents at `deep_research/config.py:449` (`ResearchWeb`, `ResearchReddit`, `ResearchSubstack`; `ResearchGeneral`, `ResearchPubMed`, `ResearchArxiv`, `ResearchSEC` available but disabled by default)
+- **Supervisor + sub-agent architecture** — configurable platform agents in [config.py](deep_research/config.py); `ResearchWeb` is enabled by default, with Reddit, Substack, General, PubMed, Arxiv and SEC agents available through configuration
 - **Multiple search providers** — Tavily and/or Exa (`WEB_SEARCH_ENGINE` at `deep_research/config.py:658`)
 - **Provider-agnostic models** — DeepSeek, MiMo, Meta Muse, Gemini, OpenAI, GLM, and OpenRouter-hosted models via a single `get_model()` factory (`deep_research/config.py:883`)
 - **Model fallback chains** — per-role fallback lists (`SUBAGENT_MODEL_FALLBACK_CHAIN`, `SUPERVISOR_MODEL_FALLBACK_CHAIN`, `DRAFT_REPORT_MODEL_FALLBACK_CHAIN`)
-- **Cited reports** — markdown report + `research_data_*.json` sources file + optional research trace
+- **Cited reports** — Markdown report, source metadata and optional research trace; applications can save the returned results
 - **LangGraph execution** — recursion limit, timeouts, and observability logging
 
 ## How It Works
@@ -63,7 +63,7 @@ clarify_with_user → write_research_brief → write_draft_report
 
 Supervisor reflection is used for planning and control; it is not copied into the final research report. Optional subtopic evaluation and parallel subtopic reports can run after the main report when enabled in `deep_research/config.py`.
 
-The default prompt family is `OPEN`. `LEGACY` is retained as a compatibility option for the older iterative draft-refinement behavior; select it with `PROMPT_VERSION` when comparing prompt strategies.
+The supported prompt family is `OPEN`. Older configurations using `LEGACY` must switch to `OPEN`.
 
 ## Official Benchmark Results
 
@@ -96,11 +96,25 @@ For a detailed explanation of the reflection and delegation methods used, see th
 
 ## Quickstart
 
-Requires **Python 3.11+**, LLM API access and a search API key. From this repository's root:
+Requires **Python 3.11+**, **Git**, a DeepSeek API key and an Exa API key. In your own project directory, use your existing Python environment or create one below.
+
+<details>
+<summary>Create and activate an environment if you do not already have one</summary>
+
+Choose standard Python tooling:
 
 ```bash
+# Standard Python tooling
 python -m venv .venv
 ```
+
+Or, using [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv venv --python 3.11 --seed
+```
+
+`--seed` includes pip so either installer below works in this environment.
 
 Activate the environment:
 
@@ -114,47 +128,33 @@ source .venv/bin/activate
 .venv\Scripts\Activate.ps1
 ```
 
-Install the package:
+</details>
+
+**Install the package directly from GitHub.** Choose pip or uv:
 
 ```bash
-python -m pip install -e .
+# pip
+python -m pip install "git+https://github.com/beneadie/deep_dog_2.git"
 ```
 
-Copy [`.env.example`](.env.example) to `.env` and fill in these two keys:
+Or, with uv:
+
+```bash
+uv pip install "git+https://github.com/beneadie/deep_dog_2.git"
+```
+
+The installer fetches the repository, builds the package and installs its dependencies. You do not need a local source checkout or a PyPI release. This works because the repository includes Python packaging metadata in [pyproject.toml](pyproject.toml); a Git repository needs a Python package build configuration to support this kind of install. The installed distribution is named `deep-dog-2`; the Python import is `deep_research`.
+
+**Add your keys** to a `.env` file in your project directory:
 
 ```dotenv
 DEEPSEEK_API_KEY=your-deepseek-key
 EXA_API_KEY=your-exa-key
 ```
 
-Run a question:
+Keep `.env` out of version control by adding it to your project's `.gitignore`. If those keys are already set as environment variables, no `.env` file is needed; existing environment variables take precedence.
 
-```bash
-python scripts/quickstart.py "Compare sodium-ion and LFP batteries for home energy storage."
-```
-
-The report is saved to `outputs/report.md`. Each run replaces that file; use `--output outputs/batteries.md` to choose another name. Interrupted output is saved as `report.partial.md`, and the command exits with a nonzero status.
-
-**Change settings in the `CONFIG` block in [scripts/quickstart.py](scripts/quickstart.py).** It includes models, search, agent selection, time limits, iteration limits and search budgets. Keep credentials in `.env`.
-
-The quickstart uses **DeepSeek V4 Flash for every model role**: supervisor, sub-agents, research brief and draft. The supervisor also writes the final report. You only need one model-provider account, plus Exa for search.
-
-
-## Use in your application
-
-The distribution package name is `deep-dog-2` (PyPI normalizes this and `deep_dog_2` to the same name); the import name is `deep_research`. Install from a local checkout with `python -m pip install /path/to/checkout`.
-
-### Minimal example
-
-For a ready-to-run file, edit `QUESTION` in [scripts/simple_research.py](scripts/simple_research.py), then run:
-
-```bash
-python scripts/simple_research.py
-```
-
-It prints progress and the returned report text, using the default configuration with no settings block. No Markdown file is created by default.
-
-With the API keys above in `.env`, no configuration object is required:
+**Create `simple_research.py` in your project** with the following code. The two settings near the top are optional examples: change the model or maximum research time, and leave the rest of the configuration at its defaults:
 
 ```python
 import asyncio
@@ -162,12 +162,104 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from deep_research.integration import run_research
+from deep_research.integration import RunConfig, run_research
 
-result = asyncio.run(run_research("How is geothermal energy developing in Europe?"))
+MODEL = "deepseek-v4-flash"
+MAX_MINUTES = 10
+
+config = RunConfig(
+    supervisor_model_fallback_chain=[MODEL],
+    subagent_model_fallback_chain=[MODEL],
+    draft_report_model_fallback_chain=[MODEL],
+    research_time_max_minutes=MAX_MINUTES,
+)
+
+result = asyncio.run(
+    run_research(
+        "How is geothermal energy developing in Europe?",
+        config=config,
+    )
+)
 print(result.status)
 print(result.final_report)
 ```
+
+Run it with your project environment activated:
+
+```bash
+python simple_research.py
+```
+
+The example prints live progress, the run status and the Markdown report. It does not save a report file by default. Only DeepSeek and Exa credentials are needed here: the example uses DeepSeek V4 Flash for all roles and Exa for Web research. The maximum research window is set to 10 minutes above; other settings remain at their library defaults. Final writing can finish after the research window.
+
+### Updating the installed package
+
+An installation uses a snapshot of the repository; it does **not** update automatically when new commits are published. To fetch and reinstall the current default-branch version, use the matching installer in your project environment:
+
+```bash
+# pip
+python -m pip install --upgrade --force-reinstall "git+https://github.com/beneadie/deep_dog_2.git"
+```
+
+Or, with uv:
+
+```bash
+uv pip install --upgrade --reinstall-package deep-dog-2 "git+https://github.com/beneadie/deep_dog_2.git"
+```
+
+Reinstallation also picks up code changes that keep the same package version number. These commands can update dependencies too. For a reproducible deployment, append `@<full-commit-hash>` to the Git URL to install a specific revision. See [pip's Git installation documentation](https://pip.pypa.io/en/stable/topics/vcs-support/) and [uv's package installation documentation](https://docs.astral.sh/uv/pip/packages/).
+
+### Work from a source checkout
+
+To modify the engine or use the repository's ready-made scripts, clone the source:
+
+```bash
+git clone https://github.com/beneadie/deep_dog_2.git
+cd deep_dog_2
+```
+
+Create and activate an environment as above, then choose an editable install:
+
+```bash
+# pip
+python -m pip install -e .
+```
+
+Or, with uv:
+
+```bash
+uv pip install -e .
+```
+
+The `.` selects the current checkout; `-e` makes local source edits available without reinstalling. To update a checkout, pull the upstream changes with Git; rerun the install command if dependencies or packaging metadata change.
+
+Copy [`.env.example`](.env.example) to `.env` in the checkout and fill in the same two keys. Edit `QUESTION` in [scripts/simple_research.py](scripts/simple_research.py), then run:
+
+```bash
+python scripts/simple_research.py
+```
+
+For a configurable command-line example, edit the `CONFIG` block in [scripts/quickstart.py](scripts/quickstart.py) and run:
+
+```bash
+python scripts/quickstart.py "Compare sodium-ion and LFP batteries for home energy storage."
+```
+
+This CLI example saves `outputs/report.md`; use `--output outputs/batteries.md` to choose another filename. Returned partial output is saved separately with a `.partial.md` suffix, and unsuccessful runs exit with a nonzero status. Its explicit settings use a 2–10 minute research window and 20 supervisor iterations, while the minimal example uses the library defaults above.
+
+The `scripts/` examples and `.env.example` belong to the repository checkout. A package install does not copy them into your application directory; use the self-contained example above when installing directly from GitHub.
+
+## Demo
+
+<video src="deepdog2_demo.mp4" controls muted playsinline width="100%">
+  Your browser does not support the video tag. <a href="deepdog2_demo.mp4">Watch the demo video (no sound)</a>
+</video>
+
+
+
+## Use in your application
+
+Import `run_research` from the installed `deep_research.integration` module, as in the quickstart. Keep the call and any `RunConfig` overrides in your own application code.
 
 The report is a Markdown-formatted string. To save it, add:
 
@@ -180,8 +272,6 @@ if result.status == "completed":
 
 Automatic engine file saving is off by default. An existing `SAVE_REPORT_TO_FILE=true` deployment setting can enable it; remove that override for the default text-only behavior. The configurable quickstart script explicitly saves its own output.
 
-This uses the package's deployment defaults: Web research with Exa and DeepSeek V4 Flash for all model roles. The default research window is 5–15 minutes, with 30 supervisor rounds, 5 rounds per sub-agent and 3 searches per sub-agent. Environment overrides can change these defaults. The configurable CLI example above uses the same models with a shorter research budget.
-
 ### Change only what you need
 
 Every `RunConfig` field is optional. For example, to change the enabled agents and search budget, replace the `run_research` call above with:
@@ -193,12 +283,12 @@ result = asyncio.run(run_research(
     "How is geothermal energy developing in Europe?",
     config=RunConfig(
         enabled_agents=["ResearchWeb", "ResearchArxiv"],
-        subagent_max_searches=2,
+        subagent_max_searches=3,
     ),
 ))
 ```
 
-For full control, expand the example below or edit [scripts/quickstart.py](scripts/quickstart.py). Every available field is listed in [run_config.py](deep_research/run_config.py), with the main options explained in the following sections.
+For full control, expand the example below. If working from a source checkout, you can also edit [scripts/quickstart.py](scripts/quickstart.py). Every available field is listed in [run_config.py](deep_research/run_config.py), with the main options explained in the following sections.
 
 <details>
 <summary>Full configuration example: models, agents, search, budgets and output</summary>
@@ -217,7 +307,7 @@ config = RunConfig(
     draft_report_model_fallback_chain=["deepseek-v4-flash"],
     enabled_agents=["ResearchWeb"],
     web_search_engine="exa",
-    research_time_min_minutes=2,
+    research_time_min_minutes=3,
     research_time_max_minutes=10,
     supervisor_max_iterations=20,
     subagent_max_iterations=5,
@@ -251,7 +341,7 @@ For request-specific credentials, pass `credentials=Credentials({"DEEPSEEK_API_K
 
 Each role takes an ordered list of model names. **A one-item list simply selects one model**; you do not need to configure fallbacks.
 
-| `RunConfig` field | Role | Quickstart choice |
+| `RunConfig` field | Role | Example model selection |
 |---|---|---|
 | `supervisor_model_fallback_chain` | Planning, delegation and final report | `["deepseek-v4-flash"]` |
 | `subagent_model_fallback_chain` | Platform research and sub-agent report writing | `["deepseek-v4-flash"]` |
@@ -261,9 +351,22 @@ Native DeepSeek uses `DEEPSEEK_API_KEY`; NVIDIA names route through OpenRouter a
 
 To use another model, replace the name in the relevant role field. Agent models need tool calling; the brief model needs structured output. For fallbacks after model errors, add alternatives and set `disable_model_fallback=False`. Entries without credentials may be skipped during model construction even when runtime fallback is disabled.
 
-Supported model routing is in [config.py](deep_research/config.py). Google models additionally require `python -m pip install -e ".[google]"`.
+Supported model routing is in [config.py](deep_research/config.py). For Google models, include the optional Google dependencies when installing the package:
 
-The quickstart explicitly selects V4 Flash for each role. A bare `RunConfig()` also defaults to V4 Flash for each role, unless overridden by deployment environment settings.
+```bash
+# pip
+python -m pip install "deep-dog-2[google] @ git+https://github.com/beneadie/deep_dog_2.git"
+```
+
+Or, with uv:
+
+```bash
+uv pip install "deep-dog-2[google] @ git+https://github.com/beneadie/deep_dog_2.git"
+```
+
+For an editable source checkout, use `python -m pip install -e ".[google]"` or `uv pip install -e ".[google]"` instead.
+
+The configurable CLI example explicitly selects V4 Flash for each role. The library defaults also use V4 Flash as the primary model for each role, unless overridden by deployment environment settings.
 
 ### Optional Nemotron profile
 
@@ -304,11 +407,11 @@ For `ResearchGeneral`, set `general_agent_platforms=["web", "arxiv"]` to limit i
 
 Enabling an agent makes it available; it does not force the supervisor to use it. Discovery and focused research use the same enabled platforms with different instructions and output modes.
 
-`validate_credentials(config, credentials)` provides the quickstart's preflight check. It checks presence, not key validity or account credit. Its specialist checks are incomplete: Perplexity is currently reported as optional even when Substack needs it. Supply the platform credentials listed above.
+`validate_credentials(config, credentials)` provides the configurable CLI example's preflight check. It checks presence, not key validity or account credit. Its specialist checks are incomplete: Perplexity is currently reported as optional even when Substack needs it. Supply the platform credentials listed above.
 
 ## Set research budgets
 
-All fields below belong to `RunConfig`. These are the **quickstart values**, not all library defaults.
+All fields below belong to `RunConfig`. These are the **values used by [scripts/quickstart.py](scripts/quickstart.py)**, not all library defaults.
 
 | Field | Example | Meaning |
 |---|---:|---|
@@ -355,24 +458,34 @@ Start with `subagent_output_mode="sources"` for focused research and `discovery_
 
 Each sub-agent prints its own completion time and totals for search calls, distinct items read, and selected (saved) sources. Inline reports may have no explicitly saved sources. The console iteration display starts at zero; this does not change the research budget. Individual source events remain available through `event_sink` without printing a line for every source.
 
-`RuntimeOptions` accepts event, trace and artifact sinks, cancellation, a checkpointer and run/thread IDs. Import it from `deep_research.integration`. Applications can keep output in memory and persist the returned report themselves, as the quickstart does. Database storage is a host responsibility; `output_mode="db"` does not install a database backend.
+`RuntimeOptions` accepts event, trace and artifact sinks, cancellation, a checkpointer and run/thread IDs. Import it from `deep_research.integration`. Applications can keep output in memory and persist the returned report themselves, as the configurable CLI example does. Database storage is a host responsibility; `output_mode="db"` does not install a database backend.
 
 Structured logging is on by default in the library. Set `logging_enabled=True` to retain rich records in `result.logs` or stream them to a `trace_sink`. These contain prompts, model-provided reasoning, tool calls and report content. Credential values are redacted, but research content remains. `log_truncation=2000` limits each logged string; `None` means no truncation. `TraceCollector` is an in-memory sink. Product events are separate from rich traces.
 
-The older [run_research.py](run_research.py) remains available for timestamped output and prompt files (`python run_research.py --help`). It uses its own deployment configuration; editing the quickstart's `CONFIG` does not configure that runner. [run_platform.py](deep_research/run_platform.py) runs a single platform agent for development.
+In a source checkout, the older [run_research.py](run_research.py) remains available for timestamped output and prompt files (`python run_research.py --help`). It uses its own deployment configuration; editing `scripts/quickstart.py`'s `CONFIG` does not configure that runner. [run_platform.py](deep_research/run_platform.py) runs a single platform agent for development.
 
 Common issues:
 
-- **Import fails:** install into the same interpreter used to run your app (`python -m pip install -e .`).
-- **Missing keys:** load `.env` before engine imports and configure all three model roles. Use `RunConfig` for per-request changes.
+- **Import fails:** activate your application's environment and use the GitHub package install command above. Editable installation (`-e .`) applies only to a source checkout.
+- **Missing keys:** load `.env` before engine imports and provide keys for your selected models and search providers. The defaults need only `DEEPSEEK_API_KEY` and `EXA_API_KEY`. Use `RunConfig` for per-request changes.
 - **Model rejects tools or structured output:** choose an endpoint with the required capability; the routing catalog is not a live provider compatibility check.
 - **Empty or partial report:** inspect `status`, `failure` and `run_metadata`, allow at least four sub-agent loops, and leave time for writing.
 - **Unexpected scope:** include the region, date range, audience and desired output in your question. The current graph does not pause to ask the user clarifying questions.
 
 ## Development
 
+From an activated environment in a [source checkout](#work-from-a-source-checkout), install the development dependencies and run the tests:
+
 ```bash
+# pip
 python -m pip install -e ".[dev]"
+python -m pytest
+```
+
+Or, with uv:
+
+```bash
+uv pip install -e ".[dev]"
 python -m pytest
 ```
 

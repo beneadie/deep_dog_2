@@ -251,7 +251,7 @@ async def _periodic_flush(observer: Observer, interval: float = _FLUSH_INTERVAL_
 
 def _materialize(result: dict, observer: Observer, trace_enabled: bool) -> dict:
     """Extract stable, JSON-safe result fields from the final graph state."""
-    final_report = result.get("final_report") or result.get("draft_report") or ""
+    final_report = result.get("final_report") or ""
     return {
         "final_report": final_report,
         "research_brief": result.get("research_brief", ""),
@@ -397,7 +397,7 @@ async def run_research(
         # Build structured output from whatever final/partial state we have.
         mat = _materialize(final_state, observer, trace_enabled=bool(cfg.enable_research_trace))
         if result.status in (RunStatus.FAILED.value, RunStatus.TIMED_OUT.value, RunStatus.CANCELLED.value):
-            if mat["final_report"] or mat["notes"] or mat["curated_sources"]:
+            if mat["final_report"] or mat["draft_report"] or mat["notes"] or mat["curated_sources"]:
                 # We salvaged partial output.
                 result.status = RunStatus.PARTIAL.value
         result.final_report = mat["final_report"]

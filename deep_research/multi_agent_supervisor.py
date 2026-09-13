@@ -11,6 +11,7 @@ maintaining isolated context windows for each research topic.
 """
 
 import asyncio
+import json
 import logging
 
 from typing_extensions import Literal
@@ -935,29 +936,84 @@ async def write_final_report(state: SupervisorState) -> dict:
     messages = [SystemMessage(content=system_message)] + history
     messages.append(HumanMessage(content=write_instruction))
 
-    response = await _final_report_writer_model().ainvoke(messages)
-    raw_report = extract_text_from_response(response.content)
+    def diagnostic(kind, summary, **details):
+        logger.info("Final report: %s", summary)
+        if runtime.console_enabled:
+            print(f"[Final Report] {summary}", flush=True)
+        runtime.observer.emit_trace(
+            kind, phase="report", agent="final_report_writer", **details)
 
-    # Chinese moderation: a content-filter refusal would otherwise be written
-    # verbatim as the report. Retry once with a vague continuation nudge.
-    if cfg.chinese_moderation and looks_like_refusal(raw_report):
-        logger.warning("Final report looks like a content-filter refusal — retrying with a continuation nudge")
-        print(f"\n{Colors.RED}[CONTENT MODERATION] Final report was refused — retrying with a continuation nudge.{Colors.RESET}")
-        retry_messages = messages + [
-            HumanMessage(
-                content="Continue the research. Produce a complete, factual response in the target language."
+    async def invoke_writer(request_messages, attempt):
+        # Character counts, not token estimates or exact HTTP payload sizes.
+        # Include prior reasoning and tool arguments as well as message text.
+        content_chars = sum(len(extract_text_from_response(m.content)) for m in request_messages)
+        reasoning_chars = sum(len(m.additional_kwargs.get("reasoning_content") or "")
+                              for m in request_messages)
+        tool_chars = sum(len(json.dumps(m.tool_calls, ensure_ascii=False, default=str))
+                         for m in request_messages if getattr(m, "tool_calls", None))
+        input_chars = content_chars + reasoning_chars + tool_chars
+        diagnostic(
+            "final_writer_input",
+            f"Attempt {attempt}: input {input_chars:,} chars across {len(request_messages)} messages "
+            f"(content {content_chars:,}, reasoning {reasoning_chars:,}, tool arguments {tool_chars:,})",
+            attempt=attempt, input_chars=input_chars, message_count=len(request_messages),
+            content_chars=content_chars, reasoning_chars=reasoning_chars, tool_call_chars=tool_chars,
+        )
+        started = time.monotonic()
+        response = await _final_report_writer_model().ainvoke(request_messages)
+        raw = extract_text_from_response(response.content)
+        reasoning_chars = len(response.additional_kwargs.get("reasoning_content") or "")
+        finish_reason = (response.response_metadata or {}).get("finish_reason")
+        usage = getattr(response, "usage_metadata", None) or (response.response_metadata or {}).get("token_usage")
+        diagnostic(
+            "final_writer_output",
+            f"Attempt {attempt}: raw output {len(raw):,} chars before cleanup; "
+            f"reasoning {reasoning_chars:,} chars; finish reason {finish_reason or 'unavailable'}; "
+            f"elapsed {time.monotonic() - started:.1f}s; token usage {usage}",
+            attempt=attempt, raw_output_chars=len(raw), reasoning_chars=reasoning_chars,
+            finish_reason=finish_reason, token_usage=usage,
+        )
+        return raw
+
+    draft = (state.get("draft_report") or "").strip()
+
+    def invalid_reason(text):
+        if not text.strip():
+            return "empty report"
+        if draft and text.strip() == draft:
+            return "report is identical to the initial draft"
+        if cfg.chinese_moderation and looks_like_refusal(text):
+            return "content-filter refusal"
+        return None
+
+    request_messages = messages
+    for attempt in (1, 2):
+        runtime.check_cancelled()
+        raw_report = await invoke_writer(request_messages, attempt)
+        reason = invalid_reason(raw_report)
+        if reason is None:
+            final_report = finalize_citations(raw_report, final_registry, renumber=True)
+            diagnostic(
+                "final_writer_cleanup",
+                f"Citation cleanup: {len(raw_report):,} chars in -> {len(final_report):,} chars out",
+                attempt=attempt, before_cleanup_chars=len(raw_report),
+                after_cleanup_chars=len(final_report),
             )
-        ]
-        try:
-            retry_response = await _final_report_writer_model().ainvoke(retry_messages)
-            retry_raw = extract_text_from_response(retry_response.content)
-            if retry_raw.strip() and not looks_like_refusal(retry_raw):
-                raw_report = retry_raw
-        except Exception as e:
-            logger.warning("Final report retry failed: %s", e)
-            print(f"{Colors.RED}[CONTENT MODERATION] Final report retry after refusal failed: {e}{Colors.RESET}")
-
-    final_report = finalize_citations(raw_report, final_registry, renumber=True)
+            reason = invalid_reason(final_report)
+            if reason:
+                reason = f"after citation cleanup: {reason}"
+        if reason is None:
+            break
+        diagnostic("final_writer_invalid", f"Attempt {attempt} rejected: {reason}",
+                   attempt=attempt, reason=reason)
+        if attempt == 2:
+            raise RuntimeError(f"Final report generation failed after two attempts: {reason}")
+        request_messages = messages + [HumanMessage(content=(
+            "Continue the research. Produce a complete, factual final report in the target language "
+            "using the research findings above. Write the finished report, not a copy of the initial "
+            "draft or outline. Include inline source codes from the registry. "
+            "Do not output CitationPlanList tags or a Sources section."
+        ))]
 
     _emit(_events.CITATIONS_VALIDATED, phase="report", agent="final_report_writer",
           report_kind="final", chars=len(final_report), sources=len(final_registry))

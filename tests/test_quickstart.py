@@ -11,8 +11,8 @@ from deep_research.integration import CredentialCheck, ResearchResult
 def quickstart(monkeypatch):
     # Never load a developer's real credentials into the shared test process.
     monkeypatch.setattr("dotenv.load_dotenv", lambda *args, **kwargs: False)
-    from scripts import quickstart
-    return quickstart
+    from scripts import quickstart_full
+    return quickstart_full
 
 
 @pytest.mark.asyncio
