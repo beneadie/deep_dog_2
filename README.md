@@ -251,7 +251,9 @@ The `scripts/` examples and `.env.example` belong to the repository checkout. A 
 
 ## Demo
 
-[Watch the Deep Dog 2 demo video](./deepdog2_demo_web_hd.mp4)
+<video src="./deepdog2_demo_web_hd.mp4" controls muted playsinline width="100%">
+  Your browser does not support the video tag. <a href="./deepdog2_demo_web_hd.mp4">Watch the demo video</a>
+</video>
 
 
 
