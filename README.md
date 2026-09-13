@@ -251,10 +251,7 @@ The `scripts/` examples and `.env.example` belong to the repository checkout. A 
 
 ## Demo
 
-<video src="./deepdog2_demo_web_hd.mp4" controls muted playsinline width="100%">
-</video>
-
-If the video player is not displayed, [open or download the demo video here](./deepdog2_demo_web_hd.mp4).
+![Deep Dog 2 demo](./deepdog2_demo.gif)
 
 
 
