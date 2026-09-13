@@ -12,7 +12,64 @@ At the time of publication, Deep Dog 2 ranked **5th overall** and **1st among op
 
 ![DeepResearch Bench rankings showing Deep Dog 2 in fifth place](assets/deep-dog-2-ranking.png)
 
-*DeepResearch Bench rankings, with Deep Dog 2 shown in fifth place.*
+- **Role-specific models** — use different models for the supervisor, initial draft, and platform sub-agents.
+- **Reflection and delegation** — the supervisor plans research, delegates distinct questions, evaluates findings, and decides whether more work is needed.
+- **Platform specialization** — Web, Reddit, and Substack agents are enabled by default, with General, PubMed, Arxiv, and SEC agents available for extension.
+- **Evidence-first reports** — findings are collected into a source registry, then final inline citations and the `## Sources` section are validated before the report is returned.
+- **Operational control** — time limits, iteration caps, search budgets, fallback chains, and output modes can be tuned for local experiments or more economical deployments.
+
+## Features
+
+- **Supervisor + sub-agent architecture** — configurable platform agents at `deep_research/config.py:449` (`ResearchWeb`, `ResearchReddit`, `ResearchSubstack`; `ResearchGeneral`, `ResearchPubMed`, `ResearchArxiv`, `ResearchSEC` available but disabled by default)
+- **Multiple search providers** — Tavily and/or Exa (`WEB_SEARCH_ENGINE` at `deep_research/config.py:658`)
+- **Provider-agnostic models** — DeepSeek, MiMo, Meta Muse, Gemini, OpenAI, GLM, and OpenRouter-hosted models via a single `get_model()` factory (`deep_research/config.py:883`)
+- **Model fallback chains** — per-role fallback lists (`SUBAGENT_MODEL_FALLBACK_CHAIN`, `SUPERVISOR_MODEL_FALLBACK_CHAIN`, `DRAFT_REPORT_MODEL_FALLBACK_CHAIN`)
+- **Cited reports** — markdown report + `research_data_*.json` sources file + optional research trace
+- **LangGraph execution** — recursion limit, timeouts, and observability logging
+
+## How It Works
+
+Deep Dog 2 retains the draft-first, iterative refinement idea from Deep Dog 1, while making reflection, delegation, and source handling explicit:
+
+```text
+User question
+     |
+     v
+clarify_with_user → write_research_brief → write_draft_report
+                                               |
+                                               v
+                                    supervisor research loop
+                              ┌───────────────┼────────────────┐
+                              │               │                │
+                           reflect        delegate       conclude research
+                         (think_tool)   (parallel agents)
+                                              |
+                                              v
+                               Web / Reddit / Substack / ...
+                                              |
+                                              v
+                                     findings + sources
+                                              |
+                                              └── repeat until complete
+                                                        |
+                                                        v
+                              final report → citation validation → output
+```
+
+1. **Scope the question.** The input is converted into a structured research brief.
+2. **Create a scaffold.** An initial draft establishes a useful report structure before live research begins. It is not treated as evidence.
+3. **Reflect and delegate.** The supervisor uses internal reflection to identify gaps and delegates focused, non-overlapping research tasks to platform agents.
+4. **Research in parallel.** Agents search, read, save, and compress findings using the tools available for their platform. Their results are returned with source metadata and citations.
+5. **Evaluate.** The supervisor reviews the findings and may request another round.
+6. **Finalize the report.** The final writer combines the brief, draft, and findings. Citation checks validate the relationship between inline citations and the final sources list.
+
+Supervisor reflection is used for planning and control; it is not copied into the final research report. Optional subtopic evaluation and parallel subtopic reports can run after the main report when enabled in `deep_research/config.py`.
+
+The default prompt family is `OPEN`. `LEGACY` is retained as a compatibility option for the older iterative draft-refinement behavior; select it with `PROMPT_VERSION` when comparing prompt strategies.
+
+## Official Benchmark Results
+
+At the time of publication, Deep Dog 2 ranked **5th overall** and **1st among open-source research agents** on the [DeepResearch Bench](https://huggingface.co/spaces/muset-ai/DeepResearch-Bench-Leaderboard) benchmark. These results were achieved with a relatively economical configuration: a maximum of 3 Exa searches per sub-agent, 15 minutes of research time, 20 total iterations, and DeepSeek V4 Pro and DeepSeek V4 Flash as the supervisor and sub-agent base models.
 
 | Metric | Score |
 |---|---:|
