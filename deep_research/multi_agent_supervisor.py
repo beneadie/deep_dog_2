@@ -425,6 +425,7 @@ async def supervisor(state: SupervisorState) -> Command[Literal["supervisor_tool
         phase="supervisor",
         agent="supervisor",
         iteration=iteration,
+        max_iterations=limits["max_researcher_iterations"],
         tool_calls=[tc.get("name") for tc in (response.tool_calls or [])],
         elapsed_minutes=round(elapsed_minutes, 2),
         remaining_minutes=round(runtime.remaining_minutes(), 2),

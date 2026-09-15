@@ -23,7 +23,7 @@ import asyncio
 import logging
 import logging
 import time
-from typing import Literal
+from typing import Any, Literal
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
@@ -249,6 +249,17 @@ def _emit_event(type_: str, *, phase: str | None = None, agent: str | None = Non
                                     iteration=iteration, **payload)
     except Exception:  # pragma: no cover - events must never break research
         pass
+
+
+def _search_query_from_args(args: Any) -> str:
+    """Best-effort query string from a search tool's arguments (names vary)."""
+    if not isinstance(args, dict):
+        return ""
+    for key in ("query", "search_term", "subreddit"):
+        value = args.get(key)
+        if value:
+            return str(value)[:500]
+    return ""
 
 
 # ── Platform registry ───────────────────────────────────────────────────
@@ -1129,7 +1140,8 @@ async def tool_node(state: ResearcherState):
                                      f"— {requested - allowed} not read. Use batch_save_selected on what you have.)")
                     content = "\n\n".join(parts)
                     _emit_event(_events.SOURCE_READ, phase="subagent", agent=agent_type,
-                                platform=agent_type, tool=t_name, count=len(resolved))
+                                platform=agent_type, tool=t_name, count=len(resolved),
+                                items=[str(item) for item in resolved[:20]])
                     elapsed = time.perf_counter() - t_start
                     print(f"    → {t_name}({len(resolved)} items) in {elapsed:.1f}s")
                     return (tc, content, extra_state)
@@ -1184,7 +1196,13 @@ async def tool_node(state: ResearcherState):
                             search_results[handle] = {"tool": t_name, "items": items}
                             content = f"[{handle}] {display}"
                             _emit_event(_events.SOURCE_FOUND, phase="subagent", agent=agent_type,
-                                        platform=agent_type, tool=t_name, count=len(items))
+                                        platform=agent_type, tool=t_name, count=len(items),
+                                        query=_search_query_from_args(t_args),
+                                        results=[
+                                            {"title": str(it.get("title", ""))[:200],
+                                             "url": str(it.get("url", ""))}
+                                            for it in (items or [])[:5] if isinstance(it, dict)
+                                        ])
                         else:
                             content = display
                     else:

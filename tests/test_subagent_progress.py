@@ -26,6 +26,14 @@ def context(collector=None):
     )
 
 
+def test_search_query_from_args_handles_known_keys():
+    assert base._search_query_from_args({"query": "DRAM prices"}) == "DRAM prices"
+    assert base._search_query_from_args({"search_term": "HBM"}) == "HBM"
+    assert base._search_query_from_args({"subreddit": "stocks"}) == "stocks"
+    assert base._search_query_from_args(None) == ""
+    assert base._search_query_from_args({"limit": 5}) == ""
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("iterations", [0, 5])
 async def test_banner_is_zero_based_without_changing_prompt_or_state(iterations, capsys):
