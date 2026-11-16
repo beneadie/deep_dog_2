@@ -446,6 +446,8 @@ The supervisor always produces the final report. These settings control what **s
 
 **Curation** (`sources` / `report`) makes the agent explicitly preserve useful evidence. Use `sources` when you want the supervisor to do the synthesis, or `report` when each task should return a written summary based on selected evidence.
 
+Source-list returns (`sources` / `sources_inline`) include each saved source's selection reason, a short evidence takeaway list, and any cross-item findings recorded with `log_finding`. Full source text stays out of the supervisor context and is still available to the final writer. The returned note size is bounded by `subagent_takeaway_max_chars`, `subagent_findings_max_chars`, and `subagent_source_return_max_chars`.
+
 **Inline reports** (`report_inline`) let the same agent write from the material it has seen, without a separate writer call. They suit discovery work that maps a topic or suggests research directions. They retain more material in context, so avoiding an extra call does not necessarily mean lower total cost.
 
 Start with `subagent_output_mode="sources"` for focused research and `discovery_output_mode="report_inline"` for discovery. “Inline” describes where the agent writes its deliverable; it does not refer to citation style or streamed output.

@@ -328,19 +328,36 @@ async def batch_save_selected(items: list) -> str:
     """Save one or more read items to your curated collection (your final output).
 
     Reference each item by its [S#] ref + 1-based index from a search result,
-    e.g. batch_save_selected(items=[{"ref": "S1", "index": 2, "reason": "why it matters"}).
+    e.g. batch_save_selected(items=[{"ref": "S1", "index": 2,
+    "reason": "why it matters", "takeaways": ["key point", "key point"]}).
     You may save a single item or many in one call.
 
     - You MUST read each item first (via the platform read tool or fetch_urls).
-    - Give each a SPECIFIC reason — why it matters for the research, not just
-      "relevant" (e.g. "quantifies the 8x request cut with cancellation data").
+    - The `reason` and `takeaways` are not just bookkeeping: they are returned
+      to the supervisor as its evidence context. The supervisor uses them to
+      understand what you found and to decide what research to do next, so
+      preserve the important nuances, caveats, and conflicts that could change
+      that decision.
+    - `reason` is the selection rationale: explain why this source matters for
+      the task the supervisor gave you and what role it plays in addressing that
+      task. Aim for 2-3 sentences; 3 is the target. Do not write only "relevant"
+      or a short fragment.
+    - `takeaways` is the evidence summary the supervisor uses to decide the next
+      research step. Record what the source actually says: specific facts,
+      numbers, dates, named entities, mechanisms, findings, and any caveats,
+      uncertainty, conflicts, or quality signals (for example, primary vs
+      secondary, publication date). Aim for 3-6 concise bullets. Use more than
+      6 when the source contains several distinct, decision-relevant points.
+      Do not restate the selection reason, do not summarize every sentence, and
+      do not paste long excerpts; the final writer receives the full text.
     - In curation mode, read broadly first and save your BEST items near the END
       (you may read and save in the same turn — reads run before saves). Don't
       save everything you read; curate for quality and coverage.
     - Saves are capped — choose the highest-value items.
 
     Args:
-        items: List of objects, each {"ref": "S1", "index": 2, "reason": "why it matters"}
+        items: List of objects, each with ref, index, reason, and optional
+            takeaway bullets (strongly recommended).
     """
     return ""  # state write handled by tool_node
 

@@ -107,6 +107,9 @@ class RunConfig:
     subagent_max_saves: int = _cfg.SUBAGENT_MAX_SAVES
     subagent_max_searches: int = _cfg.SUBAGENT_MAX_SEARCHES
     subagent_max_concurrency: int = _cfg.SUBAGENT_MAX_CONCURRENCY
+    subagent_takeaway_max_chars: int = _cfg.SUBAGENT_TAKEAWAY_MAX_CHARS
+    subagent_findings_max_chars: int = _cfg.SUBAGENT_FINDINGS_MAX_CHARS
+    subagent_source_return_max_chars: int = _cfg.SUBAGENT_SOURCE_RETURN_MAX_CHARS
     subagent_timeout_seconds: int = _cfg.SUBAGENT_TIMEOUT_SECONDS
 
     # ── Agent filtering ────────────────────────────────────────────────
@@ -203,6 +206,10 @@ class RunConfig:
         kw["subagent_max_searches"] = norm(self.subagent_max_searches, 1, HARD_MAX_SUBAGENT_SEARCHES)
         kw["subagent_max_concurrency"] = norm(
             self.subagent_max_concurrency, 1, HARD_MAX_SUBAGENT_CONCURRENCY)
+        kw["subagent_takeaway_max_chars"] = max(0, int(self.subagent_takeaway_max_chars))
+        kw["subagent_findings_max_chars"] = max(0, int(self.subagent_findings_max_chars))
+        kw["subagent_source_return_max_chars"] = max(
+            0, int(self.subagent_source_return_max_chars))
         if self.output_mode not in OUTPUT_MODES:
             kw["output_mode"] = "file"
 

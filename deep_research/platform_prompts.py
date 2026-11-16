@@ -107,11 +107,15 @@ before reporting on them. Wasting budget on searches without ever reading is a F
 CURATION_GATHERING = """\
 READ broadly across the most promising results first. When you finish reading,
 SAVE your best items with your save tool near the END of the run, including a
-specific reason explaining why each matters for the research."""
+specific reason explaining why each matters for the task and concise takeaways
+recording the evidence, nuances, and caveats the supervisor needs to decide the
+next step."""
 FULL_CONTEXT_GATHERING_SOURCES = """\
 READ broadly across ALL material first; do NOT save individual items while
 reading. Your deliverable is produced at the END: call
-batch_save_selected(items=[...]) with your best items."""
+batch_save_selected(items=[...]) with your best items, including a selection
+reason tied to the supervisor's task and concise evidence takeaways preserving
+the important nuances and caveats."""
 
 FULL_CONTEXT_GATHERING_REPORT = """\
 READ broadly, but your job is NOT to summarize everything you read. You are an
@@ -150,8 +154,21 @@ generated in code from the SOURCE REGISTRY."""
 
 FULL_CONTEXT_SOURCES_TOOLS = """
 4. **batch_save_selected**: Select which items to save at the END of research.
-   Pass items=[{{"ref": "S1", "index": 2, "reason": "reason": "why it matters. this should be relatively detailed and highlight the important bits which were found."}}]. Use the
-   [S#] ref + 1-based index from search results."""
+   Pass items=[{"ref": "S1", "index": 2, "reason": "why this source matters",
+   "takeaways": ["specific fact or number", "caveat or conflict"]}].
+   Use the [S#] ref + 1-based index from search results.
+
+   Your reason and takeaways are returned to the supervisor as its evidence
+   context. The supervisor uses them to understand what you found and decide
+   what research to do next, so preserve important nuances, caveats, and
+   conflicts rather than compressing them away.
+
+   - **reason**: explain why this source matters to the task the supervisor
+     gave you and what role it plays in addressing that task. Aim for 2-3
+     sentences.
+   - **takeaways**: 3-6 concise evidence bullets covering facts, numbers,
+     dates, names, mechanisms, and caveats/conflicts. Use more when warranted.
+     Do not restate the reason or paste long excerpts."""
 
 FULL_CONTEXT_REPORT_TOOLS = ""
 
@@ -381,11 +398,30 @@ GENERAL_TOOL_GUIDANCE = build_general_guidance(list(_GENERAL_PLATFORM_PITCH))
 CURATION_TOOL_GUIDANCE = """
 **batch_save_selected**: Save item(s) to your curated collection by their [S#]
   ref + 1-based index. You may save a SINGLE item or MANY in one call, e.g.
-  batch_save_selected(items=[{"ref": "S1", "index": 2, "reason": "why it matters. this should be relatively detailed and highlight the important bits which were found."}]).
-  You MUST read each item first, and give each a specific reason for why it matters.
-**list_saved**: Review all saved items and the reasons you saved them.
+  batch_save_selected(items=[{"ref": "S1", "index": 2,
+  "reason": "why it matters", "takeaways": ["key point", "key point"]}]).
+  You MUST read each item first.
+
+  Your reason and takeaways are returned to the supervisor as its evidence
+  context. The supervisor uses them to understand what you found and decide
+  what research to do next, so preserve important nuances, caveats, and
+  conflicts rather than compressing them away.
+
+  - **reason** (required): explain why this source matters to the task the
+    supervisor gave you and what role it plays in addressing that task. Aim for
+    2-3 sentences; 3 is the target.
+  - **takeaways** (strongly recommended): the evidence the supervisor needs to
+    decide what to investigate next. Capture specific facts, numbers, dates,
+    named entities, mechanisms, findings, and any caveats, uncertainty,
+    conflicts, or quality signals. Aim for 3-6 concise bullets; use more than 6
+    when the source has several distinct decision-relevant points. Do not
+    restate the reason, summarize every sentence, or paste long excerpts.
+
+**list_saved**: Review all saved items, their selection reasons, and takeaways.
 **log_finding**(key, value): Record a freeform cross-item observation or
-  statistic (e.g. key="sentiment", value="70% bullish across 20 posts").
+  statistic that spans multiple sources (e.g. key="sentiment", value="70%
+  bullish across 20 posts"). These are returned to the supervisor alongside
+  your saved sources.
 
 CRITICAL: Save items with batch_save_selected near the END of the run — prefer
 to read broadly first, then save your best items in bulk (you may read + save

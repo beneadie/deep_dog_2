@@ -424,6 +424,46 @@ def _build_source_registry(search_results: dict, articles_read: dict) -> list[di
     return registry
 
 
+def _normalize_takeaways(value: Any) -> list[str]:
+    """Normalize a takeaway payload (string, list, or dict) to a bullet list."""
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        value = list(value.values())
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    text = str(value).strip()
+    if not text:
+        return []
+    lines = [
+        line.strip().lstrip("-*•").strip()
+        for line in text.splitlines()
+        if line.strip()
+    ]
+    return [line for line in lines if line] or [text]
+
+
+def _clip_note(text: str, limit: int) -> str:
+    """Trim a supervisor-facing note to a character budget."""
+    text = (text or "").strip()
+    if limit <= 0 or len(text) <= limit:
+        return text
+    suffix = "\n[truncated]"
+    if limit <= len(suffix):
+        return text[:limit]
+    return text[: limit - len(suffix)].rstrip() + suffix
+
+
+def _source_note_limits() -> tuple[int, int, int]:
+    """Per-source takeaway, findings, and whole-return character budgets."""
+    cfg = get_runtime().config
+    return (
+        max(0, int(getattr(cfg, "subagent_takeaway_max_chars", 1000))),
+        max(0, int(getattr(cfg, "subagent_findings_max_chars", 2000))),
+        max(0, int(getattr(cfg, "subagent_source_return_max_chars", 15000))),
+    )
+
+
 def _build_read_refs(search_results: dict, articles_read: dict, limit: int = 25) -> list[str]:
     """Reverse-map read items to their [S# #i] tags + titles.
 
@@ -891,7 +931,8 @@ async def tool_node(state: ResearcherState):
             read_budget_by_tc[_tc.get("id")] = _allowed
             _read_budget -= _allowed
 
-    def _save_by_ref(ref: str, index: int, reason: str) -> str:
+    def _save_by_ref(ref: str, index: int, reason: str,
+                     takeaways: Any = None) -> str:
         """Resolve a [S#] ref + 1-based index to a canonical id and save it.
 
         Returns a status string for the batch_save_selected summary.
@@ -918,6 +959,7 @@ async def tool_node(state: ResearcherState):
         saved_articles[identifier] = {
             "url": str(item.get("url", "")).strip() or identifier,
             "reason": reason,
+            "takeaways": _normalize_takeaways(takeaways),
             "content": articles_read.get(identifier, {}).get("content", ""),
             "title": str(item.get("title", "")) if items else "",
         }
@@ -997,6 +1039,11 @@ async def tool_node(state: ResearcherState):
                             parts.append(f"{idx}. **{title}**")
                             parts.append(f"   URL: {item.get('url', id_)}")
                             parts.append(f"   Reason: {item.get('reason', '')}")
+                            takeaways = _normalize_takeaways(item.get("takeaways"))
+                            if takeaways:
+                                parts.append("   Takeaways:")
+                                for takeaway in takeaways:
+                                    parts.append(f"     - {takeaway}")
                             parts.append("")
                     else:
                         parts.append("No items saved yet. Use your save tool after reading.")
@@ -1023,7 +1070,8 @@ async def tool_node(state: ResearcherState):
                         ref = str(entry.get("ref", "")).strip()
                         index = int(entry.get("index", 0) or 0)
                         reason = str(entry.get("reason", "")).strip()
-                        entry_result = _save_by_ref(ref, index, reason)
+                        entry_result = _save_by_ref(
+                            ref, index, reason, entry.get("takeaways"))
                         parts.append(f"- [{ref}:{index}] {entry_result}")
                         if entry_result.startswith("Saved"):
                             new_count += 1
@@ -1353,6 +1401,7 @@ def _fallback_select_reads(articles_read: dict, search_results: dict, limit: int
         saved[ident] = {
             "url": ident,
             "reason": "auto-selected (agent did not call batch_save_selected)",
+            "takeaways": [],
             "title": _find_title(search_results, ident) or ident,
             "content": str(rec.get("content", "")),
         }
@@ -1372,6 +1421,7 @@ async def _fallback_report_from_reads(state: ResearcherState, articles_read: dic
         saved[ident] = {
             "url": ident,
             "reason": "read during research (fallback: agent did not write a report)",
+            "takeaways": [],
             "title": _find_title(search_results, ident) or ident,
             "content": str(rec.get("content", "")),
         }
@@ -1497,6 +1547,7 @@ async def compress_research(state: ResearcherState) -> dict:
         # ── Sources modes (sources / sources_inline): markdown list (no LLM) ──
         include_text = state.get("include_article_text", False)
         n_read = len(state.get("articles_read", {}))
+        takeaway_limit, findings_limit, return_limit = _source_note_limits()
 
         # Fallback: the agent never called batch_save_selected → auto-select
         # the most recently read items so the output is never empty.
@@ -1525,6 +1576,13 @@ async def compress_research(state: ResearcherState) -> dict:
                 lines.append(f"## {i}. {title}")
                 lines.append(f"- URL: {url}")
                 lines.append(f"- Why selected: {reason}")
+                takeaways = _normalize_takeaways(item.get("takeaways"))
+                if takeaways:
+                    lines.append("- Key takeaways:")
+                    for takeaway in takeaways:
+                        lines.append(f"  - {_clip_note(takeaway, takeaway_limit)}")
+                else:
+                    lines.append("- Key takeaways: (none provided)")
                 if include_text:
                     full_content = item.get("content", "")
                     if full_content:
@@ -1532,9 +1590,16 @@ async def compress_research(state: ResearcherState) -> dict:
                         lines.append("### Full text")
                         lines.append(full_content)
                 lines.append("")
+        if findings:
+            finding_lines = ["## Cross-item findings"]
+            for key, value in findings.items():
+                finding_lines.append(f"- **{key}**: {value}")
+            lines.append(_clip_note("\n".join(finding_lines), findings_limit))
         compressed = "\n".join(lines)
+        if not include_text:
+            compressed = _clip_note(compressed, return_limit)
         logger.info(f"Compress step: formatted {len(saved)} sources "
-                    f"(include_text={include_text})")
+                    f"(include_text={include_text}, takeaways={sum(len(_normalize_takeaways(i.get('takeaways'))) for i in saved.values())})")
 
     iteration_count = _iteration_count(messages)
 

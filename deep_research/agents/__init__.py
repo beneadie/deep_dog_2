@@ -56,6 +56,7 @@ def _saved_to_curated(saved_articles: dict, agent_type: str) -> list[dict]:
             "title": item.get("title", "") or "",
             "full_text": item.get("content", "") or "",
             "reason": item.get("reason", "") or "",
+            "takeaways": item.get("takeaways", []) or [],
             "source_type": source_type,
         })
     return curated

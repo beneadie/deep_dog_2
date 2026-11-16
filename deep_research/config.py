@@ -149,6 +149,12 @@ Examples of model names accepted by get_model():
 #                            Default: 8
 # SUBAGENT_MAX_CONCURRENCY   Max parallel tool calls per iteration.
 #                            Default: 4
+# SUBAGENT_TAKEAWAY_MAX_CHARS Max chars per source takeaway returned to the
+#                            supervisor. Default: 1000
+# SUBAGENT_FINDINGS_MAX_CHARS Max chars for cross-item findings returned to the
+#                            supervisor. Default: 2000
+# SUBAGENT_SOURCE_RETURN_MAX_CHARS Max chars for a source-list sub-agent result
+#                            returned to the supervisor. Default: 15000
 # DEFAULT_MAX_TOKENS         Max tokens for writer models (None = unlimited).
 #                            Default: None
 # The sub-agent depth caps (iterations/reads/saves/searches/concurrency) are
@@ -281,7 +287,7 @@ SUPERVISOR_MAX_ITERATIONS = 30
 
 # Maximum tool-call rounds per sub-agent (research platform agent). This is
 # the iteration ceiling for a single delegated research run.
-SUBAGENT_MAX_ITERATIONS = int(os.environ.get("SUBAGENT_MAX_ITERATIONS", "5"))
+SUBAGENT_MAX_ITERATIONS = int(os.environ.get("SUBAGENT_MAX_ITERATIONS", "6"))
 
 # Shared depth-cap defaults for sub-agents, used by BOTH the supervisor-launched
 # registry (_ConfiguredAgent) and the standalone runner (run_platform.py) so the
@@ -290,6 +296,14 @@ SUBAGENT_MAX_READS = int(os.environ.get("SUBAGENT_MAX_READS", "10"))
 SUBAGENT_MAX_SAVES = int(os.environ.get("SUBAGENT_MAX_SAVES", "10"))
 SUBAGENT_MAX_SEARCHES = int(os.environ.get("SUBAGENT_MAX_SEARCHES", "3"))
 SUBAGENT_MAX_CONCURRENCY = int(os.environ.get("SUBAGENT_MAX_CONCURRENCY", "3"))
+
+# Caps for the supervisor-facing source-list return. Takeaways are evidence
+# bullets per saved source; findings are cross-item observations. Keeping both
+# bounded preserves supervisor context while avoiding full-text injection.
+SUBAGENT_TAKEAWAY_MAX_CHARS = int(os.environ.get("SUBAGENT_TAKEAWAY_MAX_CHARS", "2000"))
+SUBAGENT_FINDINGS_MAX_CHARS = int(os.environ.get("SUBAGENT_FINDINGS_MAX_CHARS", "4000"))
+SUBAGENT_SOURCE_RETURN_MAX_CHARS = int(
+    os.environ.get("SUBAGENT_SOURCE_RETURN_MAX_CHARS", "20000"))
 
 # Soft (prompt-level) caps on how many research / discovery sub-agents the
 # supervisor may launch per iteration. These are injected into the supervisor
