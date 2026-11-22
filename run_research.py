@@ -44,17 +44,13 @@ from dotenv import load_dotenv
 env_path = Path(__file__).resolve().parent / '.env'
 load_dotenv(dotenv_path=env_path)
 
-from langchain_core.messages import HumanMessage  # noqa: E402
-
-from deep_research.config import ENABLE_RESEARCH_TRACE, OUTPUT_MODE, get_supervisor_model  # noqa: E402
+from deep_research.config import ENABLE_RESEARCH_TRACE, OUTPUT_MODE  # noqa: E402
 from deep_research.integration import (  # noqa: E402
     RuntimeOptions,
     RunStatus,
     run_research as engine_run_research,
 )
 from deep_research.run_config import RunConfig  # noqa: E402
-from deep_research.runtime import PromptLibrary  # noqa: E402
-from deep_research.utils import extract_text_from_response  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -121,7 +117,17 @@ async def run_research(prompt: str, output_dir: Path, thread_id: str = None,
             thread_id=thread_id,
             output_dir=output_dir,
             console_enabled=True,
+            generate_trace_report=True,
         ),
+    )
+
+    token_usage = result.usage.get("tokens", {})
+    tool_usage = result.usage.get("tool_calls", {})
+    logger.info(
+        "Usage: %s LLM calls / %s tokens; %s search calls",
+        token_usage.get("calls", 0),
+        token_usage.get("total", {}).get("total_tokens", 0),
+        tool_usage.get("total", 0),
     )
 
     if result.status in (RunStatus.FAILED.value, RunStatus.CANCELLED.value) and not result.final_report:
@@ -213,21 +219,11 @@ SUPERVISOR REACTION:
 {loop.get('supervisor_reaction', 'No explicit reaction captured')}
 
 """
-        try:
-            logger.info("Generating research trace document...")
-            prompts = PromptLibrary(cfg.prompt_version)
-            trace_prompt_tmpl = prompts.get("research_trace_compression_prompt", "")
-            if not trace_prompt_tmpl:
-                raise ValueError("research_trace_compression_prompt unavailable")
-            trace_prompt = trace_prompt_tmpl.format(
-                research_brief=research_brief,
-                interaction_log=interaction_log,
-            )
-            trace_model = get_supervisor_model(max_tokens=16000)
-            trace_response = await trace_model.ainvoke([HumanMessage(content=trace_prompt)])
-            trace_content = extract_text_from_response(trace_response.content)
-        except Exception as e:
-            logger.warning(f"Failed to generate research trace: {e}")
+        # Trace compression runs inside the engine (RuntimeOptions.generate_trace_report)
+        # so its LLM call is recorded with the rest of the run's usage.
+        trace_content = result.trace_report
+        if not trace_content:
+            logger.warning("Trace compression unavailable; using the raw trace")
             trace_content = "# Research Process Trace (Raw)\n\n"
             trace_content += f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
             trace_content += f"**Research Brief:** {research_brief}\n\n"
@@ -251,6 +247,7 @@ SUPERVISOR REACTION:
         "final_report": final_report,
         "sources": sources,
         "trace_content": trace_content,
+        "usage": result.usage,
     }
 
 

@@ -23,6 +23,7 @@ from langgraph.types import Command
 
 from deep_research.runtime import get_runtime
 from deep_research import events as _events
+from deep_research.usage import record_llm_usage
 from deep_research.state_scope import AgentState, ResearchQuestion, AgentInputState
 from deep_research.utils import extract_text_from_response, get_today_str
 
@@ -97,16 +98,28 @@ def write_research_brief(state: AgentState) -> Command[Literal["write_draft_repo
     clarify_instructions = prompts.get(
         "clarify_with_user_instructions",
         "Clarify the request before research.")
-    structured_output_model = _draft_model().with_structured_output(ResearchQuestion, method="json_mode")
+    structured_output_model = _draft_model().with_structured_output(
+        ResearchQuestion, method="json_mode", include_raw=True)
 
     # Generate research brief from conversation history. get_format_instructions()
     # supplies the JSON schema + the word "json" (required by DeepSeek json_object).
-    response = structured_output_model.invoke([
+    raw_result = structured_output_model.invoke([
         HumanMessage(content=transform_prompt.format(
             messages=get_buffer_string(state.get("messages", [])),
             date=get_today_str()
         ) + "\n\n" + parser.get_format_instructions())
     ])
+    if isinstance(raw_result, dict):
+        record_llm_usage(raw_result.get("raw"), role="scope_brief", agent="research_brief")
+        parsing_error = raw_result.get("parsing_error")
+        response = raw_result.get("parsed")
+        if parsing_error is not None:
+            raise ValueError(f"research brief parsing failed: {parsing_error}")
+    else:
+        record_llm_usage(raw_result, role="scope_brief", agent="research_brief")
+        response = raw_result
+    if response is None:
+        raise ValueError("research brief parsing produced no result")
     # Update state with generated research brief and pass it to the draft writer.
     # Hard language rule: the model detects `input_language` from the user's
     # message; `target_language` is DERIVED from it so a mismatch is impossible
@@ -160,6 +173,7 @@ async def write_draft_report(state: AgentState) -> Command[Literal["__end__"]]:
         _draft_model().ainvoke([HumanMessage(content=draft_report_prompt)]),
         timeout=420,  # 7 minutes — allows headroom when running concurrent tasks
     )
+    record_llm_usage(response, role="draft_report", agent="draft_report")
     draft_report = extract_text_from_response(response.content)
 
     original_question = get_buffer_string(state.get("messages", []))

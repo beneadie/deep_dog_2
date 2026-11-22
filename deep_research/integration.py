@@ -44,6 +44,8 @@ from deep_research.observer import Observer
 from deep_research.run_config import RunConfig
 from deep_research.runtime import RuntimeContext, runtime_scope
 from deep_research.trace import TraceCollector, TraceRecord
+from deep_research.usage import format_usage_summary, record_llm_usage
+from deep_research.utils import extract_text_from_response
 
 _log = logging.getLogger(__name__)
 
@@ -176,6 +178,7 @@ class RuntimeOptions:
     checkpointer: Any = None
     output_dir: Optional[Path] = None
     console_enabled: bool = True
+    generate_trace_report: bool = False
 
 
 @dataclass
@@ -193,6 +196,7 @@ class ResearchResult:
     curated_sources: list = field(default_factory=list)
     sources: dict = field(default_factory=dict)          # observer source registry
     trace: list = field(default_factory=list)             # research trace when enabled
+    trace_report: str = ""                 # compressed trace markdown when requested
     secondary_reports: list = field(default_factory=list)
     run_metadata: dict = field(default_factory=dict)
     usage: dict = field(default_factory=dict)
@@ -212,6 +216,7 @@ class ResearchResult:
             "curated_sources": self.curated_sources,
             "sources": self.sources,
             "trace": self.trace,
+            "trace_report": self.trace_report,
             "secondary_reports": self.secondary_reports,
             "run_metadata": self.run_metadata,
             "usage": self.usage,
@@ -425,12 +430,45 @@ async def run_research(
             "credential_check": cred_check.to_dict(),
             "elapsed_seconds": round(time.monotonic() - started_monotonic, 2),
         }
+        if options.generate_trace_report and cfg.enable_research_trace and result.trace:
+            interaction_log = ""
+            for loop in result.trace:
+                interaction_log += (
+                    f"\n--- Loop {loop['loop_number']} (at {loop['timestamp']}) ---\n\n"
+                    "SUPERVISOR DELEGATED RESEARCH TOPIC:\n"
+                    f"{loop['research_topic']}\n\n"
+                    "SUBAGENT RETURNED FINDINGS:\n"
+                    f"{loop.get('findings') or 'No findings returned'}\n\n"
+                    "SUPERVISOR REACTION:\n"
+                    f"{loop.get('supervisor_reaction') or 'No explicit reaction captured'}\n\n"
+                )
+            trace_prompt_tmpl = context.prompts.get("research_trace_compression_prompt", "")
+            if trace_prompt_tmpl:
+                try:
+                    trace_prompt = trace_prompt_tmpl.format(
+                        research_brief=result.research_brief,
+                        interaction_log=interaction_log,
+                    )
+                    trace_response = await context.models.supervisor(max_tokens=16000).ainvoke(
+                        [HumanMessage(content=trace_prompt)]
+                    )
+                    record_llm_usage(trace_response, role="trace_compression", agent="runner")
+                    result.trace_report = extract_text_from_response(trace_response.content)
+                except Exception as exc:  # noqa: BLE001 - optional diagnostic must not fail a run
+                    _log.warning("Trace compression failed: %s", exc)
+
+        tokens_snapshot = context.usage.snapshot()
+        tokens_snapshot["records"] = context.usage.records()
+        tool_snapshot = context.tool_usage.snapshot()
+        tool_snapshot["records"] = context.tool_usage.records()
         result.usage = {
             "sources_found_logged": len(result.sources),
             "source_registry_entries": len(result.source_registry),
             "curated_sources": len(result.curated_sources),
             "subagent_log_entries": len(observer.subagent_logs),
             "trace_entries": len(result.trace),
+            "tokens": tokens_snapshot,
+            "tool_calls": tool_snapshot,
         }
 
         # Terminal trace record (full report/brief/draft content).
@@ -442,6 +480,15 @@ async def run_research(
             draft_report=result.draft_report,
             elapsed_seconds=round(time.monotonic() - started_monotonic, 2),
         )
+
+        observer.emit(
+            _events.USAGE_SUMMARY, phase="run", agent="runner",
+            calls=tokens_snapshot["calls"], total=tokens_snapshot["total"],
+            by_role=tokens_snapshot["by_role"], tool_calls=tool_snapshot,
+        )
+        observer.write_usage_report({"tokens": tokens_snapshot, "tool_calls": tool_snapshot})
+        if options.console_enabled:
+            print(format_usage_summary(tokens_snapshot, tool_snapshot), flush=True)
 
         # Fail/cancel paths already emitted their specific terminal events.
         if result.status == RunStatus.COMPLETED.value:

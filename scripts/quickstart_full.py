@@ -78,6 +78,12 @@ async def main() -> int:
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(result.final_report, encoding="utf-8")
         print(f"Report: {output.resolve()}")
+
+    tokens = result.usage.get("tokens", {})
+    search_calls = result.usage.get("tool_calls", {}).get("total", 0)
+    print(f"Usage: {tokens.get('total', {}).get('total_tokens', 0):,} tokens "
+          f"across {tokens.get('calls', 0)} LLM calls; {search_calls} search calls")
+    print("By role:", tokens.get("by_role", {}))
     return 0 if result.status == "completed" else 1
 
 

@@ -310,6 +310,19 @@ class Observer:
                 for sid, e in self.sources.items()
             }
 
+    def write_usage_report(self, usage_report: dict) -> None:
+        """Persist token usage (totals + per-call records) to ``usage.json``."""
+        if not self.config.logging_enabled:
+            return
+        if self.config.log_mode not in ("file", "both") or self.log_folder is None:
+            return
+        try:
+            usage_file = self.log_folder / "usage.json"
+            with open(usage_file, "w", encoding="utf-8") as f:
+                json.dump(usage_report, f, indent=2, ensure_ascii=False)
+        except OSError:  # pragma: no cover - best-effort file logging
+            pass
+
     # ── Conductor / sub-agent logs (file + in-memory) ──────────────────
     def log_conductor_turn(self, system_prompt: str, messages: list, response: Any,
                            elapsed_minutes: float, iteration: int) -> None:

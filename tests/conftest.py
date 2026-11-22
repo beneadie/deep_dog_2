@@ -60,7 +60,23 @@ class FakeLLM:
         # cached base model (the cached draft model is reused by other nodes).
         bound = FakeLLM(self.kind)
         bound._schema = schema
+        bound._include_raw = bool(kwargs.get("include_raw", False))
         return bound
+
+    def _structured_result(self):
+        parsed = _fill_schema(self._schema)
+        if getattr(self, "_include_raw", False):
+            return {
+                "raw": AIMessage(
+                    content="structured output",
+                    usage_metadata={
+                        "input_tokens": 10, "output_tokens": 5, "total_tokens": 15,
+                    },
+                ),
+                "parsed": parsed,
+                "parsing_error": None,
+            }
+        return parsed
 
     async def ainvoke(self, messages):
         self.calls += 1
@@ -69,12 +85,12 @@ class FakeLLM:
     def invoke(self, messages):
         self.calls += 1
         if self._schema is not None:
-            return _fill_schema(self._schema)
+            return self._structured_result()
         return AIMessage(content="ok")
 
     def _respond(self, messages):
         if self._schema is not None:
-            return _fill_schema(self._schema)
+            return self._structured_result()
         if self.kind == "supervisor":
             return AIMessage(
                 content="supervisor decision: research complete",

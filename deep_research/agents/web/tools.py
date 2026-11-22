@@ -11,6 +11,7 @@ from deep_research.utils import (
     format_search_output,
     _exa_search_multiple,
 )
+from deep_research.usage import record_tool_call
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,7 @@ async def tavily_search(
     max_results = min(max(max_results, 1), 20)
 
     logger.info(f"Tavily search: '{query}'")
+    record_tool_call("tavily", "tavily_search", query=query)
     search_results = await tavily_search_multiple(
         [query],
         max_results=max_results,
@@ -113,6 +115,7 @@ async def exa_deep_search(
     start_time = time.time()
     max_results = min(max(max_results, 1), 20)
     logger.info(f"Exa deep search: '{query}'")
+    record_tool_call("exa", "exa_deep_search", query=query)
 
     search_results = await _exa_search_multiple([query], max_results=max_results)
     unique_results = deduplicate_search_results(search_results)

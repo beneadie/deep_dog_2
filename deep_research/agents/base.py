@@ -41,6 +41,7 @@ from deep_research.runtime import get_runtime
 from deep_research.secrets import get_secret
 from deep_research.trace import serialize_message
 from deep_research import events as _events
+from deep_research.usage import record_llm_usage
 from deep_research.platform_prompts import (
     BASE_AGENT_PROMPT,
     DISCOVERY_AGENT_PROMPT,
@@ -831,6 +832,10 @@ async def llm_call(state: ResearcherState):
 
     try:
         response = await asyncio.wait_for(model.ainvoke(messages), timeout=_rt.config.llm_timeout)
+        record_llm_usage(
+            response, role="subagent", agent=agent_type, platform=agent_type,
+            iteration=current_iteration,
+        )
     except Exception as e:
         logger.error(f"LLM call failed: {e}")
         return {

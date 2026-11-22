@@ -19,6 +19,7 @@ from langchain_core.tools import tool
 
 from deep_research.config import FETCH_URL_MAX_CHARS
 from deep_research.secrets import get_secret
+from deep_research.usage import record_tool_call
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,7 @@ async def perplexity_search(
     logger.info(f"{label} search: '{query[:80]}' (recency={recency}, domain={domain_filter or 'all'})")
 
     try:
+        record_tool_call("perplexity", "perplexity_search", query=query)
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post("https://api.perplexity.ai/search", json=payload, headers=headers)
             resp.raise_for_status()

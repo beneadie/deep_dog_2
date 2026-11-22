@@ -33,6 +33,7 @@ from deep_research.cancellation import (
 from deep_research.models import Credentials, ModelFactory
 from deep_research.observer import Observer
 from deep_research.run_config import RunConfig
+from deep_research.usage import ToolUsageTracker, UsageTracker
 
 # ── Prompt library ──────────────────────────────────────────────────────
 
@@ -73,6 +74,8 @@ class RuntimeContext:
     credentials: Credentials = field(default_factory=Credentials.from_env)
     models: Optional[ModelFactory] = None
     observer: Optional[Observer] = None
+    usage: Optional[UsageTracker] = None
+    tool_usage: Optional[ToolUsageTracker] = None
     cancellation: Any = None            # CancellationToken | ()->bool | None
     checkpointer: Any = None            # external LangGraph checkpointer | None
     console_enabled: bool = True        # CLI prints on; API off
@@ -90,6 +93,10 @@ class RuntimeContext:
                 artifact_sink=None,
                 console_enabled=self.console_enabled,
             )
+        if self.usage is None:
+            self.usage = UsageTracker()
+        if self.tool_usage is None:
+            self.tool_usage = ToolUsageTracker()
 
     @property
     def prompts(self) -> PromptLibrary:

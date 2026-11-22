@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add per-run token and search-call usage tracking. Every LLM call records
+  normalized token counts (including cache hits/misses and reasoning tokens,
+  with DeepSeek support) by role, agent and model; Tavily, Exa and
+  Perplexity-backed searches record one call each. Metrics are available in
+  `ResearchResult.usage`, via `llm_usage` / `tool_usage` / `usage_summary`
+  events, on the console, and in `usage.json`. The research brief and optional
+  trace-compression calls are now included; trace compression moved into the
+  engine behind `RuntimeOptions.generate_trace_report`.
+
 - Restore the original engine's research timing: the supervisor routes to
   final writing after the research window plus one minute, and writing and
   citation processing can finish beyond that window. Remove the package's

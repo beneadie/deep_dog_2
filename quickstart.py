@@ -22,6 +22,11 @@ async def main():
         print(result.failure)
     print(result.final_report)  # Markdown-formatted string; no file is created.
 
+    tokens = result.usage.get("tokens", {})
+    search_calls = result.usage.get("tool_calls", {}).get("total", 0)
+    print(f"Usage: {tokens.get('total', {}).get('total_tokens', 0):,} tokens "
+          f"across {tokens.get('calls', 0)} LLM calls; {search_calls} search calls")
+
     # Optional: save a completed report yourself.
     # if result.status == "completed":
     #     Path("report.md").write_text(result.final_report, encoding="utf-8")

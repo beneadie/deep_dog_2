@@ -35,6 +35,7 @@ import re
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from deep_research.utils import extract_text_from_response
+from deep_research.usage import record_llm_usage
 
 logger = logging.getLogger(__name__)
 
@@ -422,6 +423,7 @@ Rules:
             ]),
             timeout=timeout,
         )
+        record_llm_usage(response, role="citation_repair", agent="citation_repair")
         return extract_text_from_response(response.content)
     except asyncio.TimeoutError:
         logger.warning("Citation repair: timeout after %.0fs", timeout)

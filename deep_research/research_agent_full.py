@@ -31,6 +31,7 @@ from langgraph.types import Command
 from deep_research.utils import get_today_str, extract_text_from_response
 from deep_research.runtime import get_runtime
 from deep_research import events as _events
+from deep_research.usage import record_llm_usage
 from deep_research.state_scope import (
     AgentState,
     AgentInputState,
@@ -169,6 +170,7 @@ async def subtopic_evaluation(state: AgentState) -> Command[Literal["subtopic_ge
         SystemMessage(content=system_message),
         HumanMessage(content="Please evaluate the Final Report and decide if any subtopic reports are needed.")
     ])
+    record_llm_usage(response, role="subtopic_evaluation", agent="subtopic_evaluation")
 
     # Process tool calls
     pending_briefs = []
@@ -237,6 +239,7 @@ async def subtopic_generation(state: AgentState):
 
         # Use resilient writer for subtopic generation
         response = await _writer_model().ainvoke([HumanMessage(content=prompt)])
+        record_llm_usage(response, role="subtopic_writer", agent="subtopic_writer")
         report_content = extract_text_from_response(response.content)
 
         # Create a safe filename and save to disk (CLI file behaviour)

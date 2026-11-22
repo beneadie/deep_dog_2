@@ -43,6 +43,7 @@ from deep_research.config import looks_like_refusal
 from deep_research.runtime import get_runtime
 from deep_research.cancellation import RunCancelledError
 from deep_research import events as _events
+from deep_research.usage import record_llm_usage
 import time
 from deep_research.observability import log_conductor_turn, log_sub_agent, log_trace_delegation, log_trace_findings, log_trace_supervisor_reaction
 from deep_research.console_logger import Colors
@@ -369,6 +370,10 @@ async def supervisor(state: SupervisorState) -> Command[Literal["supervisor_tool
                 _supervisor_model().ainvoke(messages),
                 timeout=limits["supervisor_timeout_seconds"],
             )
+            record_llm_usage(
+                response, role="supervisor",
+                iteration=state.get("research_iterations", 0) + 1,
+            )
             break
         except Exception as e:
             kind = _classify_error(e)
@@ -399,6 +404,10 @@ async def supervisor(state: SupervisorState) -> Command[Literal["supervisor_tool
             response = await asyncio.wait_for(
                 _supervisor_model().ainvoke(retry_messages),
                 timeout=limits["supervisor_timeout_seconds"],
+            )
+            record_llm_usage(
+                response, role="supervisor",
+                iteration=state.get("research_iterations", 0) + 1,
             )
         except Exception as e:
             kind = _classify_error(e)
@@ -962,6 +971,7 @@ async def write_final_report(state: SupervisorState) -> dict:
         )
         started = time.monotonic()
         response = await _final_report_writer_model().ainvoke(request_messages)
+        record_llm_usage(response, role="final_report_writer", iteration=attempt)
         raw = extract_text_from_response(response.content)
         reasoning_chars = len(response.additional_kwargs.get("reasoning_content") or "")
         finish_reason = (response.response_metadata or {}).get("finish_reason")

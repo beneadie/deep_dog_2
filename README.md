@@ -94,6 +94,27 @@ Costs are easy to change by changing the configuration: shorten the research win
 
 For a detailed explanation of the reflection and delegation methods used, see the engineering article [Deep Dog 2: How Reflection and Structured Delegation Improve Supervisor–Subagent Research Systems](https://beneadie01.substack.com/p/deep-dog-2-how-reflection-delegation).
 
+## Token and search usage
+
+Every run records token counts for each LLM call and one entry per billable search call. No dollar amounts are computed — the tracked numbers are the metrics that drive spend, so you can apply your own provider prices.
+
+- **Tokens:** `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`, `cache_miss_tokens`, `reasoning_tokens`, `total_tokens`, plus `role`, `agent`, `platform`, `iteration`, `model` and `provider`. DeepSeek's cache-hit/cache-miss fields are included; cache-miss and reasoning are breakdowns of input and output respectively and are never added to `total_tokens`.
+- **Search calls:** Tavily and Exa web searches, and Perplexity-backed searches (including Substack), counted by provider. Credential-failed calls are not counted.
+
+```python
+from deep_research.integration import run_research
+
+result = await run_research(prompt)
+tokens = result.usage["tokens"]
+print(tokens["total"]["total_tokens"], tokens["by_role"])
+for call in tokens["records"]:
+    print(call["role"], call["agent"], call["total_tokens"])
+
+print(result.usage["tool_calls"]["by_provider"])  # {"exa": 3, "tavily": 2, ...}
+```
+
+The same data is available as `llm_usage`, `tool_usage` and `usage_summary` events through `RuntimeOptions(event_sink=...)`, as a console summary when `console_enabled=True`, and in `usage.json` inside the run's log folder when file logging is active. Optional trace compression (`RuntimeOptions(generate_trace_report=True)`) runs inside the engine and is recorded as the `trace_compression` role.
+
 ## Quickstart
 
 Requires **Python 3.11+**, **Git**, a DeepSeek API key and an Exa API key. In your own project directory, use your existing Python environment or create one below.
@@ -459,6 +480,8 @@ Start with `subagent_output_mode="sources"` for focused research and `discovery_
 Each sub-agent prints its own completion time and totals for search calls, distinct items read, and selected (saved) sources. Inline reports may have no explicitly saved sources. The console iteration display starts at zero; this does not change the research budget. Individual source events remain available through `event_sink` without printing a line for every source.
 
 `RuntimeOptions` accepts event, trace and artifact sinks, cancellation, a checkpointer and run/thread IDs. Import it from `deep_research.integration`. Applications can keep output in memory and persist the returned report themselves, as the configurable CLI example does. Database storage is a host responsibility; `output_mode="db"` does not install a database backend.
+
+Token and search-call metrics are described in [Token and search usage](#token-and-search-usage). Hosts can consume them from `result.usage` or from the `llm_usage` / `tool_usage` / `usage_summary` events; set `console_enabled=False` to suppress the console summary.
 
 Structured logging is on by default in the library. Set `logging_enabled=True` to retain rich records in `result.logs` or stream them to a `trace_sink`. These contain prompts, model-provided reasoning, tool calls and report content. Credential values are redacted, but research content remains. `log_truncation=2000` limits each logged string; `None` means no truncation. `TraceCollector` is an in-memory sink. Product events are separate from rich traces.
 

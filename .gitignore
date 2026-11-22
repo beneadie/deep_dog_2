@@ -30,6 +30,9 @@ rerun/
 # Local-only configuration
 .claude/
 
+# Local-only run scripts (may contain personal settings)
+scripts/usage_smoke.py
+
 # Operating-system files
 .DS_Store
 Thumbs.db

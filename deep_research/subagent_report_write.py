@@ -19,6 +19,7 @@ from deep_research.config import LLM_TIMEOUT
 from deep_research.runtime import get_runtime
 from deep_research.platform_prompts import REPORT_GENERATION_PROMPT
 from deep_research.citation_utils import finalize_citations
+from deep_research.usage import record_llm_usage
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,10 @@ async def generate_report(
         response = await asyncio.wait_for(
             model.ainvoke([HumanMessage(content=prompt)]),
             timeout=_rt.config.llm_timeout,
+        )
+        record_llm_usage(
+            response, role="subagent_report_writer", agent=platform_label,
+            model=getattr(model, "model_name", None),
         )
         report_text = response.content if isinstance(response.content, str) else str(response.content)
     except Exception as e:
