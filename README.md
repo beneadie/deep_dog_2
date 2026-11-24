@@ -185,7 +185,7 @@ load_dotenv()
 
 from deep_research.integration import RunConfig, run_research
 
-MODEL = "deepseek-v4-flash"
+MODEL = "deepseek-flash"
 MAX_MINUTES = 10
 
 config = RunConfig(
@@ -321,9 +321,9 @@ load_dotenv()  # Before engine imports: deployment defaults are read at import.
 from deep_research.integration import RunConfig, run_research
 
 config = RunConfig(
-    supervisor_model_fallback_chain=["deepseek-v4-flash"],
-    subagent_model_fallback_chain=["deepseek-v4-flash"],
-    draft_report_model_fallback_chain=["deepseek-v4-flash"],
+    supervisor_model_fallback_chain=["deepseek-flash"],
+    subagent_model_fallback_chain=["deepseek-flash"],
+    draft_report_model_fallback_chain=["deepseek-flash"],
     enabled_agents=["ResearchWeb"],
     web_search_engine="exa",
     research_time_min_minutes=3,
@@ -362,15 +362,21 @@ Each role takes an ordered list of model names. **A one-item list simply selects
 
 | `RunConfig` field | Role | Example model selection |
 |---|---|---|
-| `supervisor_model_fallback_chain` | Planning, delegation and final report | `["deepseek-v4-flash"]` |
-| `subagent_model_fallback_chain` | Platform research and sub-agent report writing | `["deepseek-v4-flash"]` |
-| `draft_report_model_fallback_chain` | Research brief and initial draft | `["deepseek-v4-flash"]` |
+| `supervisor_model_fallback_chain` | Planning, delegation and final report | `["deepseek-flash"]` |
+| `subagent_model_fallback_chain` | Platform research and sub-agent report writing | `["deepseek-flash"]` |
+| `draft_report_model_fallback_chain` | Research brief and initial draft | `["deepseek-flash"]` |
 
 Native DeepSeek uses `DEEPSEEK_API_KEY`; NVIDIA names route through OpenRouter and use `OPENROUTER_API_KEY`. To route the supervisor's DeepSeek model through OpenRouter too, set `supervisor_route_via_openrouter=True`.
 
 To use another model, replace the name in the relevant role field. Agent models need tool calling; the brief model needs structured output. For fallbacks after model errors, add alternatives and set `disable_model_fallback=False`. Entries without credentials may be skipped during model construction even when runtime fallback is disabled.
 
-Supported model routing is in [config.py](deep_research/config.py). For Google models, include the optional Google dependencies when installing the package:
+### Any OpenRouter model or provider
+
+Set `ROUTE_VIA_OPENROUTER=true` (or a role-specific `*_route_via_openrouter` flag) and put **any OpenRouter model ID verbatim** in that role's chain, for example `deepseek/deepseek-v4-pro` or a Qwen slug. There is no allow-list and no name rewriting: the slug is sent exactly as configured. OpenRouter chooses a provider by default using effective price, throughput, latency and reliability. To pin a deployment (a Baseten or Nebius endpoint, for example), set `openrouter_provider_order=["baseten"]` in `RunConfig` or `OPENROUTER_PROVIDER_ORDER=baseten` in `.env`. For other request-body options use `model_extra_body` / `MODEL_EXTRA_BODY` (JSON), with `model_extra_body_by_role` / `MODEL_EXTRA_BODY_BY_ROLE` for per-role overrides. You are responsible for checking that a slug and provider exist. A non-blocking preflight warns if a selected model does not advertise tool calling (supervisor/sub-agents) or structured output (draft/brief); it never rejects a choice.
+
+Reasoning tokens count toward `max_tokens` on most OpenRouter providers. If they consume the whole output budget, the response is `finish_reason: "length"` with empty content and the tokens are still billed. The final report writer therefore has its own `final_report_reasoning` (default `medium`) and `final_report_max_tokens` (default `60000`, under Hy4 Flash's provider limits), exposed by `scripts/usage_smoke.py` as `--writer-reasoning` and `--writer-max-tokens`. OpenRouter normalizes effort levels: `medium` is roughly 50% of the output cap on effort-based models, while token-budget models translate it into a thinking budget. Support varies by model — Gemini explicitly lists `reasoning_effort`, whereas Tencent Hy4 Flash advertises only the generic `reasoning` parameter — so an empty length-truncated writer response is retried once at `low` before failing.
+
+Supported native model families are in [config.py](deep_research/config.py). For Google models, include the optional Google dependencies when installing the package:
 
 ```bash
 # pip
@@ -393,8 +399,8 @@ Nemotron 3.5 Lightning remains supported through OpenRouter and is a good low-co
 
 ```python
 config = RunConfig(
-    supervisor_model_fallback_chain=["deepseek-v4-flash"],
-    subagent_model_fallback_chain=["deepseek-v4-flash"],
+    supervisor_model_fallback_chain=["deepseek-flash"],
+    subagent_model_fallback_chain=["deepseek-flash"],
     draft_report_model_fallback_chain=["nvidia/nemotron-3.5-lightning"],
     draft_route_via_openrouter=True,
 )

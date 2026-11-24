@@ -124,13 +124,25 @@ material for the research question at the start of this conversation: the
 strongest evidence, the key data points, the most credible sources, and the
 views that matter most. Discard the rest.
 
-Your FINAL message must be a complete markdown research report that ANSWERS the
-research question as well as the material you read allows. Lead with your answer
-or the most important finding, then support it with the best evidence, key data
-points, and differing views you selected. Be comprehensive ON THE QUESTION — cover
-every angle the material supports — not comprehensive on everything you read. If
-a major angle of the question has little or no material, say so explicitly rather
-than padding it.
+Your FINAL message must be EVIDENCE NOTES for your assigned angle, not a final
+report and not a verdict. The supervisor and the final writer decide the answer;
+your job is to give them well-organized material they can weigh. Be comprehensive
+ON YOUR ASSIGNED ANGLE — cover every angle the material supports — not
+comprehensive on everything you read. Preserve surprising details, exact figures,
+nuance, and awkward evidence that does not fit a clean story.
+
+Structure your final message with these headings:
+## Key findings
+Lead with the strongest finding, then support it with the best evidence and key
+data points. For each major claim, state source quality (primary vs secondary),
+whether it is independently corroborated, and your confidence (high/medium/low).
+## Conflicts and counter-evidence
+Cite the strongest opposing evidence even if it weakens the main finding. Present
+both sides with their codes; do not resolve the disagreement yourself.
+## Caveats and gaps
+List limitations, uncertainty, and what you could not verify. For missing evidence,
+close with "Not found, and where I looked:" naming the venues searched.
+If a major angle has little or no material, say so explicitly rather than padding it.
 
 Cite every claim INLINE with its exact citation code from the SOURCE REGISTRY in
 your SESSION STATUS, e.g. [S2#3] (or [S1#2][S2#3] for multiple) immediately after
@@ -264,16 +276,18 @@ broadly across ALL material first; do NOT save mid-run. At the END, select the
 best items with batch_save_selected(items=[{"ref": "S1", "index": 2, "reason": "..."}]).
 Use the [S#] ref + index from search results. Your selection is the final output.""",
 
-    "full_context_report": """REPORT MODE: full_context (report output) — READ
+    "full_context_report": """REPORT MODE: full_context (evidence notes) — READ
 broadly, but do NOT summarize everything. Select the best and most valuable
-material for the research question, then write a complete markdown report that
-ANSWERS that question: lead with the answer, support it with your best evidence
-and key data points, cover the question's angles, and flag any angle with little
-material. Cite each claim INLINE with its exact citation code from the SOURCE
-REGISTRY in your SESSION STATUS, e.g. [S2#3], immediately after each claim —
-copy the code EXACTLY as shown. Do NOT write a ## Sources section and do NOT
-include URLs — ## Sources is generated in code. Do NOT call finish_research with
-just a summary — your final message is the deliverable.""",
+material for your ASSIGNED ANGLE, then write structured evidence notes with
+## Key findings, ## Conflicts and counter-evidence, and ## Caveats and gaps.
+Do not issue a final verdict — the supervisor and writer decide the answer.
+For each major claim, state source quality, corroboration and confidence; cite
+the strongest opposing evidence too. Flag angles with little material. Cite each
+claim INLINE with its exact citation code from the SOURCE REGISTRY in your
+SESSION STATUS, e.g. [S2#3], immediately after each claim — copy the code EXACTLY
+as shown. Do NOT write a ## Sources section and do NOT include URLs — ## Sources
+is generated in code. Do NOT call finish_research with just a summary — your
+final message is the deliverable.""",
 }
 
 
@@ -298,12 +312,13 @@ returning poor results, select what you have and exit early.""",
         "strategy": "End with batch_save_selected(items=[...]) selecting your best items.",
     },
     "full_context_report": {
-        "task": """When you are done reading, write your COMPLETE markdown report
-as your final message. It must ANSWER the research question you were asked using
-the best material you read — select and prioritize, do not dump. Lead with your
-answer, support it with your strongest evidence and key data points, cover the
-question's angles, and cite every claim inline with its exact citation code from
-the SOURCE REGISTRY in your SESSION STATUS (e.g. [S2#3], copied exactly). Do NOT
+        "task": """When you are done reading, write your evidence notes as your
+final message: ## Key findings, ## Conflicts and counter-evidence, and
+## Caveats and gaps. Select and prioritize — do not dump and do not issue a final
+verdict; the supervisor and writer decide the answer. State source quality,
+corroboration and confidence for major claims, cite opposing evidence, and flag
+unresolved gaps. Cite every claim inline with its exact citation code from the
+SOURCE REGISTRY in your SESSION STATUS (e.g. [S2#3], copied exactly). Do NOT
 write a ## Sources section or include URLs (they are generated in code).
 Do NOT call finish_research — your final message IS the deliverable. If you
 truly have nothing usable, state that clearly.""",

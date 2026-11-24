@@ -35,7 +35,7 @@ def test_extract_usage_langchain_shape_with_cache_details():
             "total_tokens": 1200,
             "input_token_details": {"cache_read": 800, "cache_creation": 50},
         },
-        response_metadata={"model_name": "deepseek-v4-flash"},
+        response_metadata={"model_name": "deepseek-flash"},
     )
     usage = extract_usage(response)
     assert usage["input_tokens"] == 1000
@@ -44,7 +44,7 @@ def test_extract_usage_langchain_shape_with_cache_details():
     assert usage["cache_creation_tokens"] == 50
     assert usage["total_tokens"] == 1200
     assert usage["usage_available"] is True
-    assert usage["model"] == "deepseek-v4-flash"
+    assert usage["model"] == "deepseek-flash"
 
 
 def test_extract_usage_openai_shape():
@@ -150,7 +150,7 @@ def test_extract_usage_deepseek_cache_and_reasoning():
     response = _fake_response(
         response_metadata={
             "model_provider": "deepseek",
-            "model_name": "deepseek-v4-flash",
+            "model_name": "deepseek-flash",
             "token_usage": {
                 "prompt_tokens": 1200,
                 "completion_tokens": 95,

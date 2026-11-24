@@ -154,6 +154,21 @@ def validate_credentials(config: Optional[RunConfig] = None,
     )
 
 
+def _warn_model_capabilities(cfg: RunConfig, creds: Credentials) -> None:
+    """Best-effort warning for OpenRouter-roled models lacking required features."""
+    from deep_research.config import warn_openrouter_capabilities
+
+    role_models = {}
+    for role, route_key, chain_attr in (
+        ("supervisor", "supervisor", "supervisor_model_fallback_chain"),
+        ("draft_report", "draft", "draft_report_model_fallback_chain"),
+        ("subagent", "subagent", "subagent_model_fallback_chain"),
+    ):
+        if cfg.resolved_role_route(route_key):
+            role_models[role] = list(getattr(cfg, chain_attr) or [])
+    warn_openrouter_capabilities(role_models, creds)
+
+
 @dataclass
 class RuntimeOptions:
     """Host-supplied runtime hooks for one run (all optional).
@@ -356,6 +371,8 @@ async def run_research(
                       missing_required=cred_check.missing_required,
                       optional_missing=cred_check.optional_missing)
         await observer.flush_events()
+        # Non-blocking capability warnings for OpenRouter-routed models.
+        await asyncio.to_thread(_warn_model_capabilities, cfg, creds)
 
         state_holder: list[dict] = []
 

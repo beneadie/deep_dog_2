@@ -111,9 +111,12 @@ class FakeModelFactory:
         self.credentials = credentials or Credentials()
 
     def supervisor(self, tools=None, *, max_tokens=None, temperature=0.0, chain=None,
-                   reasoning_effort=None):
+                   reasoning_effort=None, extra_body=None):
         kind = "writer" if max_tokens == 40000 else "supervisor"
         return FakeLLM(kind)
+
+    def final_writer(self, *, max_tokens=None, reasoning=None, extra_body=None):
+        return FakeLLM("writer")
 
     def draft_report(self, *, max_tokens=None, temperature=0.0, chain=None, reasoning_effort=None):
         return FakeLLM("draft")

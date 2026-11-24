@@ -610,12 +610,12 @@ def _compute_turn_plan(state: dict) -> dict:
             nudges.append("next turn is your last — prepare to call batch_save_selected")
     elif mode_key == "full_context_report":
         if iters_remaining == 1:
-            nudges.append("FINAL ITERATION — STOP reading. Write your COMPLETE research report "
-                          "as your final message NOW: answer the research question with the "
-                          "best material you read, citing each claim inline with its exact "
-                          "code from the SOURCE REGISTRY.")
+            nudges.append("FINAL ITERATION — STOP reading. Write your EVIDENCE NOTES as your "
+                          "final message NOW: ## Key findings, ## Conflicts and counter-evidence, "
+                          "and ## Caveats and gaps. Do not issue a final verdict; cite each claim "
+                          "inline with its exact code from the SOURCE REGISTRY.")
         elif iters_remaining <= 2:
-            nudges.append("next turn is your last — prepare to write your report as your final message")
+            nudges.append("next turn is your last — prepare to write your evidence notes as your final message")
     if forced_save:
         nudges.append(f"FINAL SAVE ROUND — you read {n_read} items but saved only "
                       f"{n_saved}. Call batch_save_selected NOW to save the useful "
@@ -641,7 +641,7 @@ def _compute_turn_plan(state: dict) -> dict:
     if nudges:
         status_lines.append("  ⚠ " + "; ".join(nudges))
     if mode_key == "full_context_report" and is_final:
-        status_lines.append("  AVAILABLE TOOLS: none — your final message IS the report.")
+        status_lines.append("  AVAILABLE TOOLS: none — your final message IS your evidence notes.")
     if read_refs:
         status_lines.append("  READ ITEMS (use these refs for batch_save_selected):")
         for r in read_refs:

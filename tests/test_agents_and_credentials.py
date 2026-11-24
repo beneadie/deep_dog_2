@@ -114,7 +114,7 @@ def test_validate_chain_degrades_without_false_positive():
     # deepseek fallback is usable — the chain must NOT be reported missing.
     cfg = RunConfig(
         draft_report_model_fallback_chain=[
-            "nvidia/nemotron-3.5-lightning", "deepseek-v4-flash"],
+            "nvidia/nemotron-3.5-lightning", "deepseek-flash"],
         web_search_engine="exa",
     )
     check = validate_credentials(config=cfg, credentials=_DS)
@@ -150,12 +150,27 @@ def test_validate_reddit_enabled_requires_reddit_creds():
 def test_validate_openrouter_routing_reports_openrouter_key():
     cfg = RunConfig(route_via_openrouter=True,
                     supervisor_model_fallback_chain=["muse-spark-1.2"],
-                    subagent_model_fallback_chain=["deepseek-v4-flash"],
-                    draft_report_model_fallback_chain=["deepseek-v4-flash"],
+                    subagent_model_fallback_chain=["deepseek-flash"],
+                    draft_report_model_fallback_chain=["deepseek-flash"],
                     web_search_engine="exa")
     check = validate_credentials(config=cfg, credentials=_DS)
     assert not check.ok
     assert "OPENROUTER_API_KEY" in check.missing_required
+
+
+def test_validate_openrouter_accepts_arbitrary_slug_with_or_key():
+    cfg = RunConfig(
+        route_via_openrouter=True,
+        supervisor_model_fallback_chain=["anthropic/claude-sonnet-4.6"],
+        subagent_model_fallback_chain=["deepseek/deepseek-flash"],
+        draft_report_model_fallback_chain=["deepseek/deepseek-flash"],
+        web_search_engine="exa",
+    )
+    check = validate_credentials(config=cfg, credentials=Credentials({
+        "OPENROUTER_API_KEY": "x", "EXA_API_KEY": "y",
+    }))
+    assert check.ok
+    assert check.missing_required == []
 
 
 def test_validate_engine_tavily_requires_tavily_key():

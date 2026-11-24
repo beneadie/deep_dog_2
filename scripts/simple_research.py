@@ -10,9 +10,11 @@ load_dotenv()
 
 from deep_research.integration import RunConfig, run_research  # noqa: E402
 
+QUESTION = "What are the main benefits and limitations of sodium-ion batteries for home energy storage?"
+
 
 async def main():
-    result = await run_research("What are the main benefits and limitations of sodium-ion batteries for home energy storage?")
+    result = await run_research(QUESTION)
     print(f"Status: {result.status}")
     if result.failure:
         print(result.failure)

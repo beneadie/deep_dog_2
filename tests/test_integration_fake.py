@@ -181,6 +181,10 @@ def test_elapsed_research_window_does_not_cancel_pending_work(monkeypatch, phase
                 model = super().draft_report(*args, **kwargs)
                 return WaitingLLM(model.kind) if model.kind == phase else model
 
+            def final_writer(self, *args, **kwargs):
+                model = super().final_writer(*args, **kwargs)
+                return WaitingLLM(model.kind) if phase == "writer" else model
+
         def near_end_context(**kwargs):
             # Represent time already spent in the run, with 20ms left before
             # the old whole-run cutoff. Do not alter asyncio's actual clock.

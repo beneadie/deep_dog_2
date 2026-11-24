@@ -24,10 +24,8 @@ def test_invalid_final_report_retries_once(monkeypatch, bad_output, recovers):
             return AIMessage(content=FINAL_TEXT if recovers and len(calls) == 2 else bad_output)
 
     class Models(FakeModelFactory):
-        def supervisor(self, tools=None, **kwargs):
-            if kwargs.get("max_tokens") == 40000:
-                return Writer()
-            return super().supervisor(tools=tools, **kwargs)
+        def final_writer(self, **kwargs):
+            return Writer()
 
     monkeypatch.setattr(integration, "ModelFactory", Models)
     result = asyncio.run(integration.run_research(
@@ -46,20 +44,41 @@ def test_invalid_final_report_retries_once(monkeypatch, bad_output, recovers):
         assert "Final report generation failed after two attempts" in result.failure
 
 
+def test_final_writer_lowers_reasoning_after_empty_attempt(monkeypatch):
+    efforts = []
+
+    class Writer:
+        async def ainvoke(self, messages):
+            return AIMessage(content="")
+
+    class Models(FakeModelFactory):
+        def final_writer(self, *, max_tokens=None, reasoning=None, extra_body=None):
+            efforts.append(reasoning)
+            return Writer()
+
+    monkeypatch.setattr(integration, "ModelFactory", Models)
+    result = asyncio.run(integration.run_research(
+        "Test question", config=api_config(),
+        runtime=integration.RuntimeOptions(console_enabled=False),
+    ))
+    assert efforts == ["medium", "low"]
+    assert result.status == "partial"
+    assert result.final_report == ""
+
+
 def test_valid_final_report_needs_no_retry(monkeypatch):
     calls = []
 
     class Models(FakeModelFactory):
-        def supervisor(self, tools=None, **kwargs):
-            model = super().supervisor(tools=tools, **kwargs)
-            if kwargs.get("max_tokens") == 40000:
-                original = model.ainvoke
+        def final_writer(self, **kwargs):
+            model = super().final_writer(**kwargs)
+            original = model.ainvoke
 
-                async def invoke(messages):
-                    calls.append(messages)
-                    return await original(messages)
+            async def invoke(messages):
+                calls.append(messages)
+                return await original(messages)
 
-                model.ainvoke = invoke
+            model.ainvoke = invoke
             return model
 
     monkeypatch.setattr(integration, "ModelFactory", Models)

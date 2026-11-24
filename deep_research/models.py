@@ -19,6 +19,7 @@ every iteration.
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
@@ -63,20 +64,46 @@ class ModelFactory:
         self._cache: dict[tuple, Any] = {}
 
     # ── public role builders ───────────────────────────────────────────
+    def _extra_body_for_role(self, role: str | None) -> dict:
+        by_role = getattr(self.config, "model_extra_body_by_role", None) or {}
+        return _cfg.merge_model_extra_body(
+            getattr(self.config, "model_extra_body", None),
+            by_role.get(role) if role else None,
+            getattr(self.config, "openrouter_provider_order", None),
+        )
+
     def supervisor(self, tools: Optional[list] = None, *, max_tokens: Optional[int] = 32000,
                    temperature: float = 0, chain: Optional[list] = None,
                    reasoning_effort: Optional[str] = None):
         chain = list(chain or self.config.supervisor_model_fallback_chain)
         route = self.config.resolved_role_route("supervisor")
         return self._cached("supervisor", tools, max_tokens, temperature,
-                            tuple(chain), reasoning_effort, route)
+                            tuple(chain), reasoning_effort, route,
+                            self._extra_body_for_role("supervisor"))
 
     def draft_report(self, *, max_tokens: Optional[int] = 32000, temperature: float = 0,
                      chain: Optional[list] = None, reasoning_effort: Optional[str] = None):
         chain = list(chain or self.config.draft_report_model_fallback_chain)
         route = self.config.resolved_role_route("draft")
         return self._cached("draft_report", None, max_tokens, temperature,
-                            tuple(chain), reasoning_effort or None, route)
+                            tuple(chain), reasoning_effort or None, route,
+                            self._extra_body_for_role("draft"))
+
+    def final_writer(self, *, max_tokens: Optional[int] = None,
+                     reasoning: Optional[str] = None,
+                     extra_body: Optional[dict] = None):
+        """Final report writer: supervisor chain with a writer-specific reasoning budget."""
+        chain = list(self.config.supervisor_model_fallback_chain)
+        route = self.config.resolved_role_route("supervisor")
+        effort = reasoning if reasoning is not None else self.config.final_report_reasoning
+        body = self._extra_body_for_role("supervisor")
+        if effort:
+            body = _cfg.merge_model_extra_body(body, {"reasoning": {"effort": effort}})
+        if extra_body:
+            body = _cfg.merge_model_extra_body(body, extra_body)
+        limit = max_tokens if max_tokens is not None else self.config.final_report_max_tokens
+        return self._cached("final_report_writer", None, limit, 0,
+                            tuple(chain), None, route, body)
 
     def subagent(self, tools: Optional[list] = None, *, max_tokens: Optional[int] = None,
                  temperature: float = 0, chain: Optional[list] = None,
@@ -84,7 +111,8 @@ class ModelFactory:
         chain = list(chain or self.config.subagent_model_fallback_chain)
         route = self.config.resolved_role_route("subagent")
         return self._cached("subagent", tools, max_tokens, temperature,
-                            tuple(chain), reasoning_effort, route)
+                            tuple(chain), reasoning_effort, route,
+                            self._extra_body_for_role("subagent"))
 
     def get(self, model_name: str, *, temperature: float = 0, max_tokens: Optional[int] = None,
             reasoning_effort: Optional[str] = None, route_via_openrouter: Optional[bool] = None):
@@ -98,6 +126,7 @@ class ModelFactory:
                 route_via_openrouter=route,
                 reasoning_effort=reasoning_effort,
                 thinking_mode=self.config.thinking_mode,
+                extra_body=self._extra_body_for_role(None),
             )
 
     # ── internals ──────────────────────────────────────────────────────
@@ -111,19 +140,21 @@ class ModelFactory:
         return tuple(sorted(names))
 
     def _cached(self, kind: str, tools, max_tokens, temperature, chain: tuple,
-                reasoning_effort, route: bool):
+                reasoning_effort, route: bool, extra_body: dict):
+        body_key = json.dumps(extra_body, sort_keys=True, default=str) if extra_body else ""
         key = (kind, self._tool_key(tools), max_tokens, temperature, chain,
-               reasoning_effort, route)
+               reasoning_effort, route, body_key)
         model = self._cache.get(key)
         if model is None:
             model = self._build(kind, tools=tools, max_tokens=max_tokens,
                                 temperature=temperature, chain=chain,
-                                reasoning_effort=reasoning_effort, route=route)
+                                reasoning_effort=reasoning_effort, route=route,
+                                extra_body=extra_body)
             self._cache[key] = model
         return model
 
     def _build(self, kind: str, *, tools, max_tokens, temperature, chain,
-               reasoning_effort, route):
+               reasoning_effort, route, extra_body: dict):
         common = dict(
             max_tokens=max_tokens,
             temperature=temperature,
@@ -131,18 +162,21 @@ class ModelFactory:
             disable_fallback=self.config.disable_model_fallback,
         )
         with _cfg.credential_scope(self.credentials):
-            if kind == "supervisor":
+            if kind in ("supervisor", "final_report_writer"):
                 return _cfg.get_supervisor_model(
                     tools=tools, chain=list(chain),
                     route_via_openrouter=route,
                     reasoning_effort=reasoning_effort,
+                    extra_body=extra_body,
                     **common)
             if kind == "draft_report":
                 return _cfg.get_draft_report_model(
                     chain=list(chain), route_via_openrouter=route,
-                    reasoning_effort=reasoning_effort, **common)
+                    reasoning_effort=reasoning_effort,
+                    extra_body=extra_body, **common)
             if kind == "subagent":
                 return _cfg.get_subagent_model(
                     tools=tools, chain=list(chain),
-                    route_via_openrouter=route, **common)
+                    route_via_openrouter=route,
+                    extra_body=extra_body, **common)
             raise ValueError(f"unknown model kind: {kind}")

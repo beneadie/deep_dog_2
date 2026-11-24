@@ -81,13 +81,9 @@ def _supervisor_model():
     return model
 
 
-def _final_report_writer_model():
-    runtime = get_runtime()
-    model = getattr(runtime, "_final_report_writer_model", None)
-    if model is None:
-        model = runtime.models.supervisor(max_tokens=40000)
-        setattr(runtime, "_final_report_writer_model", model)
-    return model
+def _final_report_writer_model(*, max_tokens=None, reasoning=None):
+    """Final writer with its own output cap and reasoning budget (cached per run)."""
+    return get_runtime().models.final_writer(max_tokens=max_tokens, reasoning=reasoning)
 
 
 def _emit(type_: str, *, phase: str | None = None, agent: str | None = None,
@@ -953,7 +949,7 @@ async def write_final_report(state: SupervisorState) -> dict:
         runtime.observer.emit_trace(
             kind, phase="report", agent="final_report_writer", **details)
 
-    async def invoke_writer(request_messages, attempt):
+    async def invoke_writer(request_messages, attempt, reasoning, max_tokens):
         # Character counts, not token estimates or exact HTTP payload sizes.
         # Include prior reasoning and tool arguments as well as message text.
         content_chars = sum(len(extract_text_from_response(m.content)) for m in request_messages)
@@ -965,12 +961,15 @@ async def write_final_report(state: SupervisorState) -> dict:
         diagnostic(
             "final_writer_input",
             f"Attempt {attempt}: input {input_chars:,} chars across {len(request_messages)} messages "
-            f"(content {content_chars:,}, reasoning {reasoning_chars:,}, tool arguments {tool_chars:,})",
+            f"(content {content_chars:,}, reasoning {reasoning_chars:,}, tool arguments {tool_chars:,}); "
+            f"writer reasoning={reasoning!r}, max_tokens={max_tokens}",
             attempt=attempt, input_chars=input_chars, message_count=len(request_messages),
             content_chars=content_chars, reasoning_chars=reasoning_chars, tool_call_chars=tool_chars,
+            reasoning=reasoning, max_tokens=max_tokens,
         )
         started = time.monotonic()
-        response = await _final_report_writer_model().ainvoke(request_messages)
+        response = await _final_report_writer_model(
+            max_tokens=max_tokens, reasoning=reasoning).ainvoke(request_messages)
         record_llm_usage(response, role="final_report_writer", iteration=attempt)
         raw = extract_text_from_response(response.content)
         reasoning_chars = len(response.additional_kwargs.get("reasoning_content") or "")
@@ -984,7 +983,7 @@ async def write_final_report(state: SupervisorState) -> dict:
             attempt=attempt, raw_output_chars=len(raw), reasoning_chars=reasoning_chars,
             finish_reason=finish_reason, token_usage=usage,
         )
-        return raw
+        return raw, finish_reason, reasoning_chars
 
     draft = (state.get("draft_report") or "").strip()
 
@@ -997,10 +996,15 @@ async def write_final_report(state: SupervisorState) -> dict:
             return "content-filter refusal"
         return None
 
+    writer_reasoning = (getattr(cfg, "final_report_reasoning", None) or "medium").lower()
+    writer_max_tokens = int(getattr(cfg, "final_report_max_tokens", None) or 60000)
+
     request_messages = messages
     for attempt in (1, 2):
         runtime.check_cancelled()
-        raw_report = await invoke_writer(request_messages, attempt)
+        raw_report, finish_reason, reasoning_chars = await invoke_writer(
+            request_messages, attempt, writer_reasoning, writer_max_tokens)
+        truncated_empty = not raw_report.strip() and finish_reason == "length"
         reason = invalid_reason(raw_report)
         if reason is None:
             final_report = finalize_citations(raw_report, final_registry, renumber=True)
@@ -1015,10 +1019,23 @@ async def write_final_report(state: SupervisorState) -> dict:
                 reason = f"after citation cleanup: {reason}"
         if reason is None:
             break
-        diagnostic("final_writer_invalid", f"Attempt {attempt} rejected: {reason}",
-                   attempt=attempt, reason=reason)
+        detail = f"Attempt {attempt} rejected: {reason}"
+        if truncated_empty:
+            detail += " (reasoning consumed the output budget)"
+        diagnostic("final_writer_invalid", detail,
+                   attempt=attempt, reason=reason, finish_reason=finish_reason,
+                   reasoning_chars=reasoning_chars)
         if attempt == 2:
+            if truncated_empty:
+                raise RuntimeError(
+                    "Final report generation failed: reasoning consumed the output budget "
+                    "(finish_reason=length, empty content) after two attempts; lower "
+                    "final_report_reasoning or raise final_report_max_tokens."
+                )
             raise RuntimeError(f"Final report generation failed after two attempts: {reason}")
+        # Keep reasoning on, but lower its share of the output budget for the retry.
+        if writer_reasoning == "medium":
+            writer_reasoning = "low"
         request_messages = messages + [HumanMessage(content=(
             "Continue the research. Produce a complete, factual final report in the target language "
             "using the research findings above. Write the finished report, not a copy of the initial "

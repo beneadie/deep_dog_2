@@ -19,9 +19,9 @@ from deep_research.integration import (  # noqa: E402
 
 CONFIG = RunConfig(
     # A one-item chain selects one model. Add names to enable fallback options.
-    supervisor_model_fallback_chain=["deepseek-v4-flash"],
-    subagent_model_fallback_chain=["deepseek-v4-flash"],
-    draft_report_model_fallback_chain=["deepseek-v4-flash"],
+    supervisor_model_fallback_chain=["deepseek-flash"],
+    subagent_model_fallback_chain=["deepseek-flash"],
+    draft_report_model_fallback_chain=["deepseek-flash"],
     subagent_model_chain_by_agent={},
     disable_model_fallback=True,
     supervisor_route_via_openrouter=False,  # Native DeepSeek API.

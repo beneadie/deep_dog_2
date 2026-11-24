@@ -87,7 +87,18 @@ class RunConfig:
     draft_route_via_openrouter: Optional[bool] = _env_role_flag(
         _cfg.DRAFT_ROUTE_VIA_OPENROUTER)
     draft_report_reasoning_effort: str = _cfg.DRAFT_REPORT_REASONING_EFFORT
+    final_report_reasoning: str = _cfg.FINAL_REPORT_REASONING
+    final_report_max_tokens: int = _cfg.FINAL_REPORT_MAX_TOKENS
     thinking_mode: str = _cfg.THINKING_MODE   # "auto" | "on" | "off"
+    # OpenRouter provider selection / arbitrary request-body params. These are
+    # merged into extra_body for every OpenRouter-backed model; per-role values
+    # override global ones. The user owns verifying slugs/providers exist.
+    openrouter_provider_order: list = field(
+        default_factory=lambda: list(_cfg.OPENROUTER_PROVIDER_ORDER))
+    model_extra_body: dict = field(
+        default_factory=lambda: dict(_cfg.MODEL_EXTRA_BODY))
+    model_extra_body_by_role: dict = field(
+        default_factory=lambda: dict(_cfg.MODEL_EXTRA_BODY_BY_ROLE))
 
     # ── Research timing (minutes) ──────────────────────────────────────
     research_time_min_minutes: float = _cfg.RESEARCH_TIME_MIN_MINUTES

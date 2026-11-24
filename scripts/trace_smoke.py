@@ -43,16 +43,24 @@ if str(ROOT) not in sys.path:
 # Model profiles for test runs — edit here instead of setting env vars.
 # Each profile maps to RunConfig model-chain fields (single-element = no fallback).
 PROFILES: dict[str, dict] = {
-    "default": {},  # engine defaults (supervisor deepseek-v4-pro, subagents deepseek-v4-flash)
+    "default": {},  # engine defaults (supervisor deepseek-v4-pro, subagents deepseek-flash)
     "nemotron-subagents": {
-        "supervisor_model_fallback_chain": ["deepseek-v4-flash"],
+        "supervisor_model_fallback_chain": ["deepseek-flash"],
         "subagent_model_fallback_chain": ["nvidia/nemotron-3.5-lightning"],
         "draft_report_model_fallback_chain": ["nvidia/nemotron-3.5-lightning"],
     },
     "all-deepseek": {
         "supervisor_model_fallback_chain": ["deepseek-v4-pro"],
-        "subagent_model_fallback_chain": ["deepseek-v4-flash"],
-        "draft_report_model_fallback_chain": ["deepseek-v4-flash"],
+        "subagent_model_fallback_chain": ["deepseek-flash"],
+        "draft_report_model_fallback_chain": ["deepseek-flash"],
+    },
+    "openrouter-deepseek": {
+        "supervisor_model_fallback_chain": ["deepseek/deepseek-v4-pro"],
+        "subagent_model_fallback_chain": ["deepseek/deepseek-v4-flash"],
+        "draft_report_model_fallback_chain": ["deepseek/deepseek-v4-flash"],
+        "supervisor_route_via_openrouter": True,
+        "subagent_route_via_openrouter": True,
+        "draft_route_via_openrouter": True,
     },
 }
 
@@ -123,6 +131,11 @@ def _parse_args() -> argparse.Namespace:
                    help="override sub-agent model (comma-separated = fallback chain)")
     p.add_argument("--draft-model", default=None,
                    help="override draft/brief model (comma-separated = fallback chain)")
+    p.add_argument("--provider-order", default=None,
+                   help="comma-separated OpenRouter provider slugs (e.g. 'baseten' or "
+                        "'nebius,alibaba'); applied to all roles")
+    p.add_argument("--extra-body", default=None,
+                   help="JSON object of additional OpenRouter request-body params")
     return p.parse_args()
 
 
@@ -142,6 +155,10 @@ def _model_overrides(args: argparse.Namespace) -> dict:
         overrides["subagent_model_fallback_chain"] = _chain(args.subagent_model)
     if args.draft_model:
         overrides["draft_report_model_fallback_chain"] = _chain(args.draft_model)
+    if args.provider_order:
+        overrides["openrouter_provider_order"] = _chain(args.provider_order)
+    if args.extra_body:
+        overrides["model_extra_body"] = json.loads(args.extra_body)
     return overrides
 
 

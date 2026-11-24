@@ -123,7 +123,7 @@ def test_model_factory_per_run_isolation():
     )
     cfg_b = RunConfig(
         profile="B",
-        subagent_model_fallback_chain=["deepseek-v4-flash"],
+        subagent_model_fallback_chain=["deepseek-flash"],
         disable_model_fallback=True,
         route_via_openrouter=False,
     )
@@ -139,9 +139,52 @@ def test_model_factory_per_run_isolation():
     assert model_a1.__class__ is model_b.__class__  # same provider family
 
 
+def test_model_factory_openrouter_passthrough_and_provider_override():
+    creds = Credentials({"OPENROUTER_API_KEY": "sk-test-not-real"})
+    cfg = RunConfig(
+        profile="or-test",
+        route_via_openrouter=True,
+        supervisor_model_fallback_chain=["deepseek/deepseek-flash"],
+        subagent_model_fallback_chain=["anthropic/claude-sonnet-4.6"],
+        openrouter_provider_order=["baseten"],
+        model_extra_body={"provider": {"sort": "price"}},
+        model_extra_body_by_role={"subagent": {"provider": {"order": ["nebius"]}}},
+        disable_model_fallback=True,
+    )
+    mf = ModelFactory(cfg, creds)
+    sup = mf.supervisor()
+    sub = mf.subagent()
+
+    assert sup.model_name == "deepseek/deepseek-flash"
+    assert sup.extra_body["provider"]["order"] == ["baseten"]
+    assert sup.extra_body["provider"]["sort"] == "price"
+    assert sub.model_name == "anthropic/claude-sonnet-4.6"
+    assert sub.extra_body["provider"]["order"] == ["nebius"]
+
+
+def test_model_factory_final_writer_reasoning_override():
+    creds = Credentials({"OPENROUTER_API_KEY": "sk-test-not-real"})
+    cfg = RunConfig(
+        profile="writer-test",
+        route_via_openrouter=True,
+        supervisor_model_fallback_chain=["deepseek/deepseek-flash"],
+        final_report_reasoning="medium",
+        final_report_max_tokens=60000,
+        disable_model_fallback=True,
+    )
+    mf = ModelFactory(cfg, creds)
+    first = mf.final_writer()
+    second = mf.final_writer(reasoning="low")
+
+    assert first.extra_body["reasoning"]["effort"] == "medium"
+    assert second.extra_body["reasoning"]["effort"] == "low"
+    assert first is not second
+    assert mf.final_writer() is first
+
+
 def test_model_factory_cached_per_run():
     creds = Credentials({"DEEPSEEK_API_KEY": "sk-test-not-real"})
-    cfg = RunConfig(subagent_model_fallback_chain=["deepseek-v4-flash"],
+    cfg = RunConfig(subagent_model_fallback_chain=["deepseek-flash"],
                     disable_model_fallback=True)
     mf = ModelFactory(cfg, creds)
     first = mf.supervisor()

@@ -12,7 +12,7 @@ flags in the Routing section below.
 Examples of model names accepted by get_model():
     - OpenAI: "gpt-5", "gpt-5-mini"
     - Google Gemini: "gemini-2.5-pro", "gemini-3-flash-preview", "gemini-3-pro-preview"
-    - DeepSeek: "deepseek-v4-pro", "deepseek-v4-flash"
+    - DeepSeek: "deepseek-v4-pro", "deepseek-flash"
     - OpenRouter Nemotron: "nvidia/nemotron-3.5-lightning"
 """
 
@@ -24,7 +24,7 @@ Examples of model names accepted by get_model():
 # ═══════════════════════════════════════════════════════════════════════════
 #
 # DEEPSEEK (native API: api.deepseek.com) — env: DEEPSEEK_API_KEY
-#   deepseek-v4-flash          fast, cost-effective, tool calling
+#   deepseek-flash          fast, cost-effective, tool calling
 #   deepseek-v4-pro            strongest reasoning, slower
 #
 # MIMO (native API: api.xiaomimimo.com) — env: MIMO_API_KEY
@@ -69,26 +69,26 @@ Examples of model names accepted by get_model():
 #
 # ── Model selection ─────────────────────────────────────────────────────
 # SUBAGENT_MODEL             Primary sub-agent model (any model name above)
-#                            Default: "deepseek-v4-flash"
+#                            Default: "deepseek-flash"
 #                            Env: SUBAGENT_MODEL
 # SUBAGENT_MODEL_FALLBACK_CHAIN   Comma-separated fallback list.
-#                            Default: [SUBAGENT_MODEL, "deepseek-v4-flash"]
+#                            Default: [SUBAGENT_MODEL, "deepseek-flash"]
 #                            Env: SUBAGENT_MODEL_FALLBACK_CHAIN
 # SUBAGENT_MODEL_CHAIN_BY_AGENT   Per-agent override map, keyed by
 #                            AGENT_REGISTRY key (e.g. "ResearchReddit").
 #                            Empty (default) = shared SUBAGENT_MODEL_FALLBACK_CHAIN.
 # SUPERVISOR_MODEL           Supervisor model (any model name above)
-#                            Default: "deepseek-v4-flash"
+#                            Default: "deepseek-flash"
 #                            Env: SUPERVISOR_MODEL
 # SUPERVISOR_MODEL_FALLBACK_CHAIN   Comma-separated fallback list.
 #                            Default: [SUPERVISOR_MODEL, "deepseek-v4-pro"]
 #                            Env: SUPERVISOR_MODEL_FALLBACK_CHAIN
 # DRAFT_REPORT_MODEL         Research brief and initial draft model (any model
 #                            name above).
-#                            Default: "deepseek-v4-flash"
+#                            Default: "deepseek-flash"
 #                            Env: DRAFT_REPORT_MODEL
 # DRAFT_REPORT_MODEL_FALLBACK_CHAIN   Comma-separated fallback list.
-#                            Default: [DRAFT_REPORT_MODEL, "deepseek-v4-flash",
+#                            Default: [DRAFT_REPORT_MODEL, "deepseek-flash",
 #                            "deepseek-v4-pro"]
 #                            Env: DRAFT_REPORT_MODEL_FALLBACK_CHAIN
 #
@@ -256,6 +256,8 @@ import contextvars
 import json
 import os
 import re
+import time
+import urllib.request
 from typing import Optional
 from langchain.chat_models import init_chat_model
 from langchain_openai import ChatOpenAI
@@ -266,7 +268,7 @@ from langchain_core.messages import AIMessage
 # Supervisor model can be configured independently from subagents.
 # Defaults to DeepSeek V4 Flash unless overridden
 # via environment variable.
-SUPERVISOR_MODEL = os.environ.get("SUPERVISOR_MODEL", "deepseek-v4-flash")
+SUPERVISOR_MODEL = os.environ.get("SUPERVISOR_MODEL", "deepseek-flash")
 
 # OPEN             = lean, most open-ended; minimal draft, supervisor fills in the information
 # Env: PROMPT_VERSION (only OPEN is supported)
@@ -398,7 +400,7 @@ ENABLE_RESEARCH_TRACE: bool = False #os.environ.get("DISABLE_RESEARCH_TRACE", ""
 
 # Supervisor-specific fallback chain (model NAMES, not providers — routing is
 # resolved by get_model()). If unset, defaults to [SUPERVISOR_MODEL, deepseek-v4-pro].
-# Example env value: "deepseek-v4-flash,deepseek-v4-pro"
+# Example env value: "deepseek-flash,deepseek-v4-pro"
 _supervisor_chain_env = os.environ.get("SUPERVISOR_MODEL_FALLBACK_CHAIN", "").strip()
 if _supervisor_chain_env:
     SUPERVISOR_MODEL_FALLBACK_CHAIN = [
@@ -411,15 +413,15 @@ else:
 # model NAMES resolved by get_model(). SUBAGENT_MODEL is the primary; the chain
 # is the ordered fallback list. Override the whole chain with
 # SUBAGENT_MODEL_FALLBACK_CHAIN (comma-separated env value).
-# Example env value: "nvidia/nemotron-3.5-lightning,deepseek-v4-flash"
-SUBAGENT_MODEL = os.environ.get("SUBAGENT_MODEL", "deepseek-v4-flash")
+# Example env value: "nvidia/nemotron-3.5-lightning,deepseek-flash"
+SUBAGENT_MODEL = os.environ.get("SUBAGENT_MODEL", "deepseek-flash")
 _subagent_chain_env = os.environ.get("SUBAGENT_MODEL_FALLBACK_CHAIN", "").strip()
 if _subagent_chain_env:
     SUBAGENT_MODEL_FALLBACK_CHAIN = [
         m.strip() for m in _subagent_chain_env.split(",") if m.strip()
     ]
 else:
-    SUBAGENT_MODEL_FALLBACK_CHAIN = [SUBAGENT_MODEL, "deepseek-v4-flash"]
+    SUBAGENT_MODEL_FALLBACK_CHAIN = [SUBAGENT_MODEL, "deepseek-flash"]
 
 # Draft-report model for the research brief and the initial, cold,
 # non-cacheable draft pass in research_agent_scope.py. These passes do not use
@@ -427,14 +429,14 @@ else:
 # are scaffolding that must be LONG, not perfect, so a fast model is fine.
 # Override with DRAFT_REPORT_MODEL to point both passes at any model.
 # Example env value: "nvidia/nemotron-3.5-lightning"
-DRAFT_REPORT_MODEL = os.environ.get("DRAFT_REPORT_MODEL", "deepseek-v4-flash").strip()
+DRAFT_REPORT_MODEL = os.environ.get("DRAFT_REPORT_MODEL", "deepseek-flash").strip()
 _draft_chain_env = os.environ.get("DRAFT_REPORT_MODEL_FALLBACK_CHAIN", "").strip()
 if _draft_chain_env:
     DRAFT_REPORT_MODEL_FALLBACK_CHAIN = [
         m.strip() for m in _draft_chain_env.split(",") if m.strip()
     ]
 elif DRAFT_REPORT_MODEL:
-    DRAFT_REPORT_MODEL_FALLBACK_CHAIN = [DRAFT_REPORT_MODEL, "deepseek-v4-flash", "deepseek-v4-pro"]
+    DRAFT_REPORT_MODEL_FALLBACK_CHAIN = [DRAFT_REPORT_MODEL, "deepseek-flash", "deepseek-v4-pro"]
 else:
     DRAFT_REPORT_MODEL_FALLBACK_CHAIN = SUBAGENT_MODEL_FALLBACK_CHAIN
 
@@ -442,7 +444,7 @@ else:
 # "ResearchWeb", "ResearchReddit"). Leave empty to use the shared
 # SUBAGENT_MODEL_FALLBACK_CHAIN for every sub-agent. Set to give a specific
 # sub-agent its own model/fallback chain:
-#   SUBAGENT_MODEL_CHAIN_BY_AGENT = {"ResearchReddit": ["deepseek-v4-flash"]}
+#   SUBAGENT_MODEL_CHAIN_BY_AGENT = {"ResearchReddit": ["deepseek-flash"]}
 SUBAGENT_MODEL_CHAIN_BY_AGENT: dict[str, list[str]] = {}
 
 # Controls the destination of the research outputs
@@ -564,6 +566,44 @@ DRAFT_ROUTE_VIA_OPENROUTER = os.environ.get("DRAFT_ROUTE_VIA_OPENROUTER", "").st
 # draft are routed via OpenRouter (DRAFT_ROUTE_VIA_OPENROUTER=true). Set it together
 # with DRAFT_REPORT_MODEL (draft model) and DRAFT_REPORT_MODEL_FALLBACK_CHAIN (draft chain).
 DRAFT_REPORT_REASONING_EFFORT = os.environ.get("DRAFT_REPORT_REASONING_EFFORT", "").strip().lower()
+
+# Final report writer: keep reasoning on but bound it so visible output is not
+# starved. OpenRouter treats reasoning.effort as ~50% (medium) / ~20% (low) of
+# max_tokens on effort-based models. 60k stays under every Hy4 Flash endpoint's
+# max_completion_tokens. Env: FINAL_REPORT_REASONING, FINAL_REPORT_MAX_TOKENS
+FINAL_REPORT_REASONING = (
+    os.environ.get("FINAL_REPORT_REASONING", "medium").strip().lower() or "medium"
+)
+FINAL_REPORT_MAX_TOKENS = int(os.environ.get("FINAL_REPORT_MAX_TOKENS", "60000"))
+
+# ── OpenRouter provider selection / generic request-body params ────────
+# When a role routes via OpenRouter, its configured model name is sent verbatim
+# as the OpenRouter model ID. OpenRouter chooses a provider by default using
+# effective price, throughput, latency, reliability and tool-call quality.
+# To pin a deployment (e.g. a Baseten or Nebius endpoint), set
+# OPENROUTER_PROVIDER_ORDER to comma-separated provider slugs; it becomes
+# extra_body.provider.order. MODEL_EXTRA_BODY is a generic JSON escape hatch
+# for any other OpenRouter body param. Both can be overridden per role with
+# MODEL_EXTRA_BODY_BY_ROLE (JSON object keyed by supervisor/draft/subagent).
+# The user is responsible for verifying a chosen slug/provider exists.
+def _env_json_object(name: str) -> dict:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{name} must be a JSON object: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"{name} must be a JSON object")
+    return value
+
+
+OPENROUTER_PROVIDER_ORDER = [
+    p.strip() for p in os.environ.get("OPENROUTER_PROVIDER_ORDER", "").split(",") if p.strip()
+]
+MODEL_EXTRA_BODY = _env_json_object("MODEL_EXTRA_BODY")
+MODEL_EXTRA_BODY_BY_ROLE = _env_json_object("MODEL_EXTRA_BODY_BY_ROLE")
 
 # ── Chinese content moderation guard ───────────────────────────────────
 # Set CHINESE_MODERATION=true when the model chain uses a DIRECT Chinese API
@@ -723,11 +763,13 @@ EXA_SEARCH_MAX_CHARS = int(os.environ.get("EXA_SEARCH_MAX_CHARS", "6000"))
 # Env: FETCH_URL_MAX_CHARS
 FETCH_URL_MAX_CHARS = int(os.environ.get("FETCH_URL_MAX_CHARS", "10000"))
 
-# Model name → OpenRouter slug when ROUTE_VIA_OPENROUTER is ON for that role.
-# meta models are handled separately (slug is "meta/<model-name>").
+# Convenience aliases for short native names when a role routes via OpenRouter.
+# These are optional: any other name is passed verbatim as the OpenRouter model
+# ID. "deepseek-flash" maps to the existing OpenRouter Flash slug; DeepSeek's
+# native API also uses "deepseek-flash" as its canonical name.
 _OPENROUTER_MODEL_MAP_BY_NAME = {
     "deepseek-v4-pro": "deepseek/deepseek-v4-pro",
-    "deepseek-v4-flash": "deepseek/deepseek-v4-flash",
+    "deepseek-flash": "deepseek/deepseek-v4-flash",
     "mimo-v2.5": "xiaomi/mimo-v2.5",
     "mimo-v2.5-pro": "xiaomi/mimo-v2.5-pro",
 }
@@ -785,11 +827,8 @@ def model_required_keys(model_name: str, route_via_openrouter: bool = False) -> 
     """
     model_lower = model_name.lower()
     if route_via_openrouter:
-        slug = _OPENROUTER_MODEL_MAP_BY_NAME.get(model_lower)
-        if slug is None and "muse" in model_lower and not model_name.startswith("meta/"):
-            slug = f"meta/{model_name}"
-        if slug is not None:
-            return ["OPENROUTER_API_KEY"]
+        # OpenRouter routing is name-agnostic: every model needs only the one key.
+        return ["OPENROUTER_API_KEY"]
     if "glm" in model_lower:
         return ["ZHIPUAI_API_KEY"]
     if "nemotron" in model_lower or model_name.startswith("nvidia/"):
@@ -1014,17 +1053,116 @@ if not getattr(_lc_base.BaseChatOpenAI._create_chat_result, "_reasoning_capture_
 
 # ===== MODEL-NAME FACTORY =====
 
+def _deep_merge(*layers: dict | None) -> dict:
+    """Merge request-body layers, recursing into nested dicts."""
+    merged: dict = {}
+    for layer in layers:
+        if not layer:
+            continue
+        for key, value in layer.items():
+            if isinstance(value, dict) and isinstance(merged.get(key), dict):
+                merged[key] = _deep_merge(merged[key], value)
+            else:
+                merged[key] = value
+    return merged
+
+
+def merge_model_extra_body(global_body: dict | None = None,
+                           role_body: dict | None = None,
+                           provider_order: list | None = None) -> dict:
+    """Resolve global + per-role body params and provider order into extra_body."""
+    order_body = {"provider": {"order": list(provider_order)}} if provider_order else None
+    # Provider order is the broad default; explicit global/role body params win.
+    return _deep_merge(order_body, global_body, role_body)
+
+
+# ── OpenRouter capability preflight (warning only) ──────────────────────
+_OR_CAPS_TTL_SECONDS = 3600
+_OR_CAPS_TIMEOUT_SECONDS = 2.0
+_OR_CAPS_CACHE: dict = {"at": 0.0, "models": {}}
+
+
+def _fetch_openrouter_capabilities(credentials=None) -> dict:
+    """Fetch the OpenRouter model catalog once per hour (best effort)."""
+    now = time.monotonic()
+    if _OR_CAPS_CACHE["models"] and now - _OR_CAPS_CACHE["at"] < _OR_CAPS_TTL_SECONDS:
+        return _OR_CAPS_CACHE["models"]
+
+    api_key = None
+    if credentials is not None:
+        getter = getattr(credentials, "get", None)
+        if callable(getter):
+            api_key = getter("OPENROUTER_API_KEY")
+    resolver = _active_cred_resolver()
+    if not api_key and resolver is not None:
+        api_key = resolver("OPENROUTER_API_KEY")
+    if not api_key:
+        api_key = os.getenv("OPENROUTER_API_KEY")
+
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    request = urllib.request.Request(f"{OPENROUTER_BASE_URL}/models", headers=headers)
+    with urllib.request.urlopen(request, timeout=_OR_CAPS_TIMEOUT_SECONDS) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    models = {}
+    for item in payload.get("data", []):
+        model_id = item.get("id")
+        if model_id:
+            models[model_id] = set(item.get("supported_parameters") or [])
+    _OR_CAPS_CACHE["at"] = now
+    _OR_CAPS_CACHE["models"] = models
+    return models
+
+
+def warn_openrouter_capabilities(role_models: dict | None = None, credentials=None) -> None:
+    """Warn (never raise/block) if a selected OR model lacks required capabilities.
+
+    Supervisor/subagent roles need tool calling; the draft role needs JSON
+    structured output. Unknown model IDs are left to the user's judgement.
+    """
+    if not role_models:
+        return
+    try:
+        catalog = _fetch_openrouter_capabilities(credentials)
+    except Exception as exc:
+        _fallback_logger.debug("OpenRouter capability preflight skipped: %s", exc)
+        return
+    if not catalog:
+        return
+
+    for role, names in role_models.items():
+        needs_tools = role in ("supervisor", "subagent")
+        for name in names or []:
+            slug = _OPENROUTER_MODEL_MAP_BY_NAME.get(name.lower())
+            if slug is None and "muse" in name.lower() and not name.startswith("meta/"):
+                slug = f"meta/{name}"
+            supported = catalog.get(slug or name)
+            if supported is None:
+                continue
+            if needs_tools and "tools" not in supported:
+                _fallback_logger.warning(
+                    "OpenRouter model %s (%s role) does not advertise 'tools' support; "
+                    "tool calls may fail.", name, role)
+            elif not needs_tools and not (supported & {"structured_outputs", "response_format"}):
+                _fallback_logger.warning(
+                    "OpenRouter model %s (%s role) does not advertise structured output "
+                    "(response_format/structured_outputs); the research brief may fail to "
+                    "parse.", name, role)
+
+
 def get_model(model_name: str = SUBAGENT_MODEL, temperature: float = 0, max_tokens: int = None,
               route_via_openrouter: bool = None, reasoning_effort: str = None,
-              thinking_mode: str = None):
+              thinking_mode: str = None, extra_body: dict | None = None):
     """
     Get a chat model instance based on the model name.
 
     Automatically detects the provider based on the model name and returns
-    the appropriate LangChain chat model instance.
+    the appropriate LangChain chat model instance. When a role is routed via
+    OpenRouter, ``model_name`` is passed through verbatim as the OpenRouter
+    model ID — any model and any provider exposed by OpenRouter can be used.
 
     Args:
-        model_name: Name of the model (e.g., "gpt-5.2", "gemini-3-flash-preview")
+        model_name: Name of the model (e.g., "gpt-5.2", "deepseek/deepseek-v4-flash").
         temperature: Temperature for generation (default: 0)
         max_tokens: Maximum tokens for generation (default: None, uses model default)
         route_via_openrouter: Force OpenRouter routing for this call (True/False).
@@ -1035,6 +1173,9 @@ def get_model(model_name: str = SUBAGENT_MODEL, temperature: float = 0, max_toke
             thinking enabled/disabled). Default None = provider default.
         thinking_mode: Optional per-run override for THINKING_MODE
             ("auto"/"on"/"off"). None uses the module default.
+        extra_body: Arbitrary OpenAI-compatible request-body params (e.g.
+            {"provider": {"order": ["baseten"]}}). Merged over any thinking
+            defaults; reasoning_effort wins over a conflicting "reasoning" key.
 
     Returns:
         LangChain chat model instance
@@ -1060,40 +1201,49 @@ def get_model(model_name: str = SUBAGENT_MODEL, temperature: float = 0, max_toke
             )
         _effort_body = {"reasoning": {"effort": reasoning_effort}}
 
-    # ROUTE_VIA_OPENROUTER: send known direct-API models through OpenRouter so a
-    # single OPENROUTER_API_KEY covers the supervisor chain, writers, and search.
+    def _openrouter_model(slug: str, seeded_body: dict | None = None):
+        """Build an OpenRouter client with merged provider/body configuration."""
+        if "deepseek" in model_lower:
+            provider_key = "deepseek-openrouter"
+        elif "mimo" in model_lower:
+            provider_key = "mimo-openrouter"
+        elif "muse" in model_lower or model_name.startswith("meta/"):
+            provider_key = "meta-openrouter"
+        else:
+            provider_key = None
+        thinking = _tp(provider_key) if provider_key else None
+        body = _deep_merge(thinking, seeded_body, extra_body, _effort_body)
+        kwargs = {
+            "model": slug,
+            "api_key": _require_api_key("OPENROUTER_API_KEY", model_name),
+            "base_url": OPENROUTER_BASE_URL,
+            "temperature": temperature,
+        }
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+        if body:
+            kwargs["extra_body"] = body
+        return ChatOpenAI(**kwargs)
+
+    def _legacy_openrouter_body() -> dict:
+        """Default provider pins for the two legacy OpenRouter-only model names."""
+        if model_lower == "deepseek-baba-singapore":
+            return {"provider": {"order": [BABA_PROVIDER_SLUG]}}
+        if "nemotron" in model_lower or model_name.startswith("nvidia/"):
+            return {"provider": {"order": ["CoreWeave"]}}
+        return {}
+
+    # ROUTE_VIA_OPENROUTER: any model name is a verbatim OpenRouter model ID.
+    # Optional short-name aliases and legacy provider pins are applied first;
+    # caller-supplied extra_body and reasoning_effort then win.
     if _route:
         slug = _OPENROUTER_MODEL_MAP_BY_NAME.get(model_lower)
         if slug is None and "muse" in model_lower and not model_name.startswith("meta/"):
             slug = f"meta/{model_name}"
-        if slug is not None:
-            api_key = _require_api_key("OPENROUTER_API_KEY", model_name)
-            kwargs = {
-                "model": slug,
-                "api_key": api_key,
-                "base_url": "https://openrouter.ai/api/v1",
-                "temperature": temperature,
-            }
-            if max_tokens is not None:
-                kwargs["max_tokens"] = max_tokens
-            if "deepseek" in model_lower:
-                provider_key = "deepseek-openrouter"
-            elif "mimo" in model_lower:
-                provider_key = "mimo-openrouter"
-            elif "muse" in model_lower or model_name.startswith("meta/"):
-                provider_key = "meta-openrouter"
-            else:
-                provider_key = None
-            extra_body = {}
-            if _effort_body:
-                extra_body.update(_effort_body)
-            else:
-                thinking = _tp(provider_key) if provider_key else None
-                if thinking:
-                    extra_body.update(thinking)
-            if extra_body:
-                kwargs["extra_body"] = extra_body
-            return ChatOpenAI(**kwargs)
+        if model_lower == "deepseek-baba-singapore":
+            slug = BABA_MODEL_ID
+        seeded_body = _legacy_openrouter_body()
+        return _openrouter_model(slug or model_name, seeded_body)
 
     # Z.AI GLM models (OpenAI-compatible API)
     if "glm" in model_lower:
@@ -1107,45 +1257,13 @@ def get_model(model_name: str = SUBAGENT_MODEL, temperature: float = 0, max_toke
             kwargs["max_tokens"] = max_tokens
         return ChatOpenAI(**kwargs)
 
-    # OpenRouter-hosted Nemotron models (OpenAI-compatible API)
-    if "nemotron" in model_lower or model_name.startswith("nvidia/"):
-        extra_body = {"provider": {"order": ["CoreWeave"]}}
-        if _effort_body:
-            extra_body = {**extra_body, **_effort_body}
-        kwargs = {
-            "model": model_name,
-            "api_key": _require_api_key("OPENROUTER_API_KEY", model_name),
-            "base_url": "https://openrouter.ai/api/v1",
-            "temperature": temperature,
-            # Pin OpenRouter routing to CoreWeave (cheap, low-latency inference
-            # for the search model; see nvidia/nemotron-3.5-lightning providers).
-            "extra_body": extra_body,
-        }
-        if max_tokens is not None:
-            kwargs["max_tokens"] = max_tokens
-        return ChatOpenAI(**kwargs)
-
-    # DeepSeek V4 Flash hosted on OpenRouter via Alibaba Cloud (Singapore).
-    # Kept as a model NAME in chains so routing pins are just chain entries.
-    if model_lower == "deepseek-baba-singapore":
-        _require_api_key("OPENROUTER_API_KEY", model_name)
-        extra_body = {"provider": {"order": [BABA_PROVIDER_SLUG]}}
-        if _effort_body:
-            extra_body = {**extra_body, **_effort_body}
-        else:
-            thinking = _tp("deepseek-openrouter")
-            if thinking:
-                extra_body = {**extra_body, **thinking}
-        kwargs = {
-            "model": BABA_MODEL_ID,
-            "api_key": _require_api_key("OPENROUTER_API_KEY", model_name),
-            "base_url": OPENROUTER_BASE_URL,
-            "temperature": temperature,
-        }
-        if max_tokens is not None:
-            kwargs["max_tokens"] = max_tokens
-        kwargs["extra_body"] = extra_body
-        return ChatOpenAI(**kwargs)
+    # Legacy OpenRouter-only model names. Kept so existing chains that use them
+    # still work with the route flag off. New configs should set the flag and
+    # supply any OpenRouter slug directly.
+    if ("nemotron" in model_lower or model_name.startswith("nvidia/")
+            or model_lower == "deepseek-baba-singapore"):
+        slug = BABA_MODEL_ID if model_lower == "deepseek-baba-singapore" else model_name
+        return _openrouter_model(slug, _legacy_openrouter_body())
 
     # DeepSeek models (OpenAI-compatible API)
     if "deepseek" in model_lower:
@@ -1282,10 +1400,10 @@ def _fallback_exceptions() -> tuple:
 def get_supervisor_model(tools: list = None, max_tokens: int = None, temperature: float = 0,
                          chain: list = None, route_via_openrouter: bool = None,
                          reasoning_effort: str = None, thinking_mode: str = None,
-                         disable_fallback: bool = None):
+                         disable_fallback: bool = None, extra_body: dict | None = None):
     """Get a resilient model runnable for the supervisor role only.
 
-    Uses SUPERVISOR_MODEL_FALLBACK_CHAIN (defaults to deepseek-v4-flash →
+    Uses SUPERVISOR_MODEL_FALLBACK_CHAIN (defaults to deepseek-flash →
     deepseek-v4-pro) with LangChain's .with_fallbacks() mechanism. Pass `chain`
     to override the chain per invocation (e.g. the draft report writer).
 
@@ -1310,7 +1428,7 @@ def get_supervisor_model(tools: list = None, max_tokens: int = None, temperature
     _disable = DISABLE_MODEL_FALLBACK if disable_fallback is None else bool(disable_fallback)
     primary_model = get_model(chain[0], temperature=temperature, max_tokens=max_tokens,
                               route_via_openrouter=_route, reasoning_effort=reasoning_effort,
-                              thinking_mode=thinking_mode)
+                              thinking_mode=thinking_mode, extra_body=extra_body)
     if tools:
         primary_model = primary_model.bind_tools(tools)
 
@@ -1321,7 +1439,7 @@ def get_supervisor_model(tools: list = None, max_tokens: int = None, temperature
     for model_name in chain[1:]:
         fb = get_model(model_name, temperature=temperature, max_tokens=max_tokens,
                        route_via_openrouter=_route, reasoning_effort=reasoning_effort,
-                       thinking_mode=thinking_mode)
+                       thinking_mode=thinking_mode, extra_body=extra_body)
         if tools:
             fb = fb.bind_tools(tools)
         fallbacks.append(fb)
@@ -1340,7 +1458,7 @@ def get_draft_report_model(max_tokens: int = None, temperature: float = 0,
                            route_via_openrouter: bool = None,
                            reasoning_effort: str = None, thinking_mode: str = None,
                            disable_fallback: bool = None,
-                           chain: list = None):
+                           chain: list = None, extra_body: dict | None = None):
     """Get the resilient model chain for the research brief and initial draft.
 
     Uses DRAFT_REPORT_MODEL_FALLBACK_CHAIN. The research brief and initial draft
@@ -1362,6 +1480,7 @@ def get_draft_report_model(max_tokens: int = None, temperature: float = 0,
         reasoning_effort=reasoning_effort,
         thinking_mode=thinking_mode,
         disable_fallback=disable_fallback,
+        extra_body=extra_body,
     )
 
 
@@ -1373,11 +1492,12 @@ def get_subagent_model(
     route_via_openrouter: bool = None,
     thinking_mode: str = None,
     disable_fallback: bool = None,
+    extra_body: dict | None = None,
 ):
     """Get a resilient model runnable for the sub-agent role only.
 
     Research platform sub-agents use SUBAGENT_MODEL_FALLBACK_CHAIN (defaults to
-    deepseek-v4-flash) with LangChain's
+    deepseek-flash) with LangChain's
     .with_fallbacks() mechanism. Pass `chain` to override the
     chain per invocation (e.g. run_platform.py selecting gemini or the
     Alibaba-Singapore deepseek by model name). Routing resolves via
@@ -1397,7 +1517,8 @@ def get_subagent_model(
         )
     _disable = DISABLE_MODEL_FALLBACK if disable_fallback is None else bool(disable_fallback)
     primary_model = get_model(chain[0], temperature=temperature, max_tokens=max_tokens,
-                              route_via_openrouter=_route, thinking_mode=thinking_mode)
+                              route_via_openrouter=_route, thinking_mode=thinking_mode,
+                              extra_body=extra_body)
     if tools:
         primary_model = primary_model.bind_tools(tools)
 
@@ -1407,7 +1528,8 @@ def get_subagent_model(
     fallbacks = []
     for model_name in chain[1:]:
         fb = get_model(model_name, temperature=temperature, max_tokens=max_tokens,
-                       route_via_openrouter=_route, thinking_mode=thinking_mode)
+                       route_via_openrouter=_route, thinking_mode=thinking_mode,
+                       extra_body=extra_body)
         if tools:
             fb = fb.bind_tools(tools)
         fallbacks.append(fb)

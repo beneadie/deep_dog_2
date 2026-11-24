@@ -30,6 +30,15 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 if __name__ == "__main__" and not __package__:
     __package__ = Path(__file__).resolve().parent.name
+# CLI-only OpenRouter overrides must be set before config is imported: its
+# routing flags are parsed at import time. load_dotenv() does not overwrite
+# existing values, so an explicit CLI flag always wins over .env.
+if "--route-openrouter" in sys.argv:
+    os.environ["SUBAGENT_ROUTE_VIA_OPENROUTER"] = "true"
+if "--openrouter-provider" in sys.argv:
+    _prov_idx = sys.argv.index("--openrouter-provider")
+    if _prov_idx + 1 < len(sys.argv):
+        os.environ["OPENROUTER_PROVIDER_ORDER"] = sys.argv[_prov_idx + 1]
 load_dotenv()
 
 from langchain_core.messages import HumanMessage
@@ -134,7 +143,7 @@ async def run_platform(
 # chain entry. `--provider` picks one of these; default = SUBAGENT_MODEL_FALLBACK_CHAIN.
 _CLI_MODEL_CHAIN = {
     "mimo": ["mimo-v2.5-pro"],
-    "deepseek": ["deepseek-v4-flash"],
+    "deepseek": ["deepseek-flash"],
     "deepseek-baba-singapore": ["deepseek-baba-singapore"],
     "gemini": ["gemini-3-flash-preview"],
     "meta": ["meta/muse-spark-1.2"],
@@ -156,6 +165,15 @@ def build_parser() -> argparse.ArgumentParser:
                         choices=sorted(_CLI_MODEL_CHAIN),
                         help="Model chain to use (maps to a model-name chain, e.g. 'gemini', "
                              "'deepseek-baba-singapore'). Default: SUBAGENT_MODEL_FALLBACK_CHAIN")
+    parser.add_argument("--model", type=str, default=None,
+                        help="Arbitrary single model name. Use with --route-openrouter to pass "
+                             "any OpenRouter model ID verbatim (e.g. deepseek/deepseek-flash). "
+                             "Overrides --provider.")
+    parser.add_argument("--route-openrouter", action="store_true",
+                        help="Route this run's sub-agent through OpenRouter regardless of .env")
+    parser.add_argument("--openrouter-provider", type=str, default=None,
+                        help="Comma-separated OpenRouter provider slugs to prefer "
+                             "(e.g. 'baseten', 'nebius,alibaba')")
     parser.add_argument("--max-iterations", "-m", type=int, default=SUBAGENT_MAX_ITERATIONS,
                         help=f"Max tool-call rounds (default: {SUBAGENT_MAX_ITERATIONS})")
     parser.add_argument("--max-reads", type=int, default=SUBAGENT_MAX_READS,
@@ -197,7 +215,8 @@ async def async_main() -> None:
     print(f"  Language: {args.language}  |  Include text: {args.include_article_text}  |  Save .md: {args.save_md}")
     print(f"{'=' * 60}\n")
 
-    model_chain = _CLI_MODEL_CHAIN.get(args.provider) if args.provider else None
+    model_chain = [args.model] if args.model else (
+        _CLI_MODEL_CHAIN.get(args.provider) if args.provider else None)
     result = await run_platform(
         agent_type=args.agent,
         topic=args.topic,
