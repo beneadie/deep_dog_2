@@ -1424,7 +1424,7 @@ async def test_meta(results: list) -> None:
     try:
         cfg.ROUTE_VIA_OPENROUTER = True
         for name, expect_slug in (
-            ("deepseek-flash", "deepseek/deepseek-v4-flash"),
+            ("deepseek-flash", "~deepseek/deepseek-flash-latest"),
             ("mimo-v2.5-pro", "xiaomi/mimo-v2.5-pro"),
             (f"meta/{META_MODEL}", f"meta/{META_MODEL}"),
         ):
@@ -1505,7 +1505,7 @@ async def test_openrouter_agnostic(results: list) -> None:
     prev = cfg.ROUTE_VIA_OPENROUTER
     try:
         cfg.ROUTE_VIA_OPENROUTER = True
-        slug = "deepseek/deepseek-flash"
+        slug = "deepseek/deepseek-v4.1-flash-1017"
         m = cfg.get_model(slug, extra_body={"provider": {"order": ["baseten"]}})
         ok_slug = "openrouter" in str(m.openai_api_base) and m.model_name == slug
         ok_body = (getattr(m, "extra_body", {}) or {}).get("provider", {}).get("order") == ["baseten"]

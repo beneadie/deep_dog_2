@@ -92,12 +92,23 @@ class ModelFactory:
     def final_writer(self, *, max_tokens: Optional[int] = None,
                      reasoning: Optional[str] = None,
                      extra_body: Optional[dict] = None):
-        """Final report writer: supervisor chain with a writer-specific reasoning budget."""
-        chain = list(self.config.supervisor_model_fallback_chain)
-        route = self.config.resolved_role_route("supervisor")
+        """Final report writer with its own model chain and routing.
+
+        Defaults to the supervisor chain/route; an explicit override keeps the
+        supervisor model unchanged. Reasoning effort is sent only when the
+        writer routes via OpenRouter — native DeepSeek ignores it.
+        """
+        chain = list(self.config.final_report_model_fallback_chain
+                     or self.config.supervisor_model_fallback_chain)
+        explicit_route = getattr(self.config, "final_report_route_via_openrouter", None)
+        route = (self.config.resolved_role_route("final_report")
+                 if explicit_route is not None
+                 else self.config.resolved_role_route("supervisor"))
         effort = reasoning if reasoning is not None else self.config.final_report_reasoning
         body = self._extra_body_for_role("supervisor")
-        if effort:
+        # DeepSeek runs reliably without an explicit effort level (native or
+        # via OpenRouter); sending one caused truncation on other models.
+        if effort and route and "deepseek" not in chain[0].lower():
             body = _cfg.merge_model_extra_body(body, {"reasoning": {"effort": effort}})
         if extra_body:
             body = _cfg.merge_model_extra_body(body, extra_body)

@@ -162,8 +162,8 @@ def test_validate_openrouter_accepts_arbitrary_slug_with_or_key():
     cfg = RunConfig(
         route_via_openrouter=True,
         supervisor_model_fallback_chain=["anthropic/claude-sonnet-4.6"],
-        subagent_model_fallback_chain=["deepseek/deepseek-flash"],
-        draft_report_model_fallback_chain=["deepseek/deepseek-flash"],
+        subagent_model_fallback_chain=["deepseek/deepseek-v4.1-flash-1017"],
+        draft_report_model_fallback_chain=["deepseek/deepseek-v4.1-flash-1017"],
         web_search_engine="exa",
     )
     check = validate_credentials(config=cfg, credentials=Credentials({
@@ -171,6 +171,30 @@ def test_validate_openrouter_accepts_arbitrary_slug_with_or_key():
     }))
     assert check.ok
     assert check.missing_required == []
+
+
+def test_validate_final_writer_chain_requires_its_own_key():
+    cfg = RunConfig(
+        supervisor_model_fallback_chain=["deepseek-flash"],
+        final_report_model_fallback_chain=["muse-spark-1.2"],
+        web_search_engine="exa",
+    )
+    check = validate_credentials(config=cfg, credentials=Credentials({
+        "DEEPSEEK_API_KEY": "x", "EXA_API_KEY": "y",
+    }))
+    assert "META_API_KEY" in check.missing_required
+
+
+def test_openrouter_model_ids_validated_before_run(monkeypatch):
+    import deep_research.config as cfgmod
+
+    monkeypatch.setattr(
+        cfgmod, "_fetch_openrouter_capabilities",
+        lambda creds=None: {"~deepseek/deepseek-flash-latest": set(), "x/y": set()},
+    )
+    cfgmod.validate_openrouter_model_ids({"supervisor": ["deepseek-flash"]})
+    with pytest.raises(ValueError, match="Unknown OpenRouter model ID"):
+        cfgmod.validate_openrouter_model_ids({"supervisor": ["deepseek/deepseek-flash"]})
 
 
 def test_validate_engine_tavily_requires_tavily_key():

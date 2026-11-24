@@ -167,7 +167,7 @@ def build_parser() -> argparse.ArgumentParser:
                              "'deepseek-baba-singapore'). Default: SUBAGENT_MODEL_FALLBACK_CHAIN")
     parser.add_argument("--model", type=str, default=None,
                         help="Arbitrary single model name. Use with --route-openrouter to pass "
-                             "any OpenRouter model ID verbatim (e.g. deepseek/deepseek-flash). "
+                             "any OpenRouter model ID verbatim (e.g. deepseek/deepseek-v4.1-flash-1017). "
                              "Overrides --provider.")
     parser.add_argument("--route-openrouter", action="store_true",
                         help="Route this run's sub-agent through OpenRouter regardless of .env")

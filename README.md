@@ -362,9 +362,12 @@ Each role takes an ordered list of model names. **A one-item list simply selects
 
 | `RunConfig` field | Role | Example model selection |
 |---|---|---|
-| `supervisor_model_fallback_chain` | Planning, delegation and final report | `["deepseek-flash"]` |
+| `supervisor_model_fallback_chain` | Planning and delegation | `["deepseek-flash"]` |
 | `subagent_model_fallback_chain` | Platform research and sub-agent report writing | `["deepseek-flash"]` |
 | `draft_report_model_fallback_chain` | Research brief and initial draft | `["deepseek-flash"]` |
+| `final_report_model_fallback_chain` | Final report writing | defaults to the supervisor chain |
+
+The final writer defaults to the supervisor's chain and routing so it can reuse the cached prompt prefix. Set `final_report_model_fallback_chain` to write the report with a different model; `final_report_route_via_openrouter` overrides its routing when set. Splitting the writer loses that cache reuse. Reasoning effort is sent to the writer only when it routes via OpenRouter and the model is not a DeepSeek model — DeepSeek keeps its own behaviour in either routing mode.
 
 Native DeepSeek uses `DEEPSEEK_API_KEY`; NVIDIA names route through OpenRouter and use `OPENROUTER_API_KEY`. To route the supervisor's DeepSeek model through OpenRouter too, set `supervisor_route_via_openrouter=True`.
 

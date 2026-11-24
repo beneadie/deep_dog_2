@@ -131,6 +131,14 @@ def _parse_args() -> argparse.Namespace:
                    help="override sub-agent model (comma-separated = fallback chain)")
     p.add_argument("--draft-model", default=None,
                    help="override draft/brief model (comma-separated = fallback chain)")
+    p.add_argument("--writer-model", default=None,
+                   help="override final report writer model (default: supervisor model)")
+    p.add_argument("--writer-route-openrouter", choices=["true", "false"], default=None,
+                   help="override OpenRouter routing for the writer (default: inherit supervisor)")
+    p.add_argument("--writer-reasoning", choices=["medium", "low"], default=None,
+                   help="writer reasoning effort (default: config, medium)")
+    p.add_argument("--writer-max-tokens", type=int, default=None,
+                   help="writer output cap (default: config, 60000)")
     p.add_argument("--provider-order", default=None,
                    help="comma-separated OpenRouter provider slugs (e.g. 'baseten' or "
                         "'nebius,alibaba'); applied to all roles")
@@ -155,6 +163,14 @@ def _model_overrides(args: argparse.Namespace) -> dict:
         overrides["subagent_model_fallback_chain"] = _chain(args.subagent_model)
     if args.draft_model:
         overrides["draft_report_model_fallback_chain"] = _chain(args.draft_model)
+    if args.writer_model:
+        overrides["final_report_model_fallback_chain"] = _chain(args.writer_model)
+    if args.writer_route_openrouter is not None:
+        overrides["final_report_route_via_openrouter"] = args.writer_route_openrouter == "true"
+    if args.writer_reasoning:
+        overrides["final_report_reasoning"] = args.writer_reasoning
+    if args.writer_max_tokens is not None:
+        overrides["final_report_max_tokens"] = args.writer_max_tokens
     if args.provider_order:
         overrides["openrouter_provider_order"] = _chain(args.provider_order)
     if args.extra_body:
@@ -219,7 +235,7 @@ def main() -> int:
     print(f"[trace_smoke] agents: {_agents(args.agents)}")
     print(f"[trace_smoke] profile: {args.profile}")
     print(f"[trace_smoke] truncation: {args.truncation or 'none (full content)'}")
-    for role in ("supervisor", "subagent", "draft_report"):
+    for role in ("supervisor", "subagent", "draft_report", "final_report"):
         chain = models.get(f"{role}_model_fallback_chain")
         if chain:
             print(f"[trace_smoke] {role:<12} model: {chain}")

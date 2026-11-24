@@ -74,6 +74,7 @@ class RunConfig:
         default_factory=lambda: list(_cfg.SUBAGENT_MODEL_FALLBACK_CHAIN))
     draft_report_model_fallback_chain: list = field(
         default_factory=lambda: list(_cfg.DRAFT_REPORT_MODEL_FALLBACK_CHAIN))
+    final_report_model_fallback_chain: Optional[list] = _cfg.FINAL_REPORT_MODEL_FALLBACK_CHAIN
     subagent_model_chain_by_agent: dict = field(
         default_factory=lambda: dict(_cfg.SUBAGENT_MODEL_CHAIN_BY_AGENT))
     disable_model_fallback: bool = _cfg.DISABLE_MODEL_FALLBACK
@@ -86,6 +87,8 @@ class RunConfig:
         _cfg.SUBAGENT_ROUTE_VIA_OPENROUTER)
     draft_route_via_openrouter: Optional[bool] = _env_role_flag(
         _cfg.DRAFT_ROUTE_VIA_OPENROUTER)
+    final_report_route_via_openrouter: Optional[bool] = _env_role_flag(
+        _cfg.FINAL_REPORT_ROUTE_VIA_OPENROUTER)
     draft_report_reasoning_effort: str = _cfg.DRAFT_REPORT_REASONING_EFFORT
     final_report_reasoning: str = _cfg.FINAL_REPORT_REASONING
     final_report_max_tokens: int = _cfg.FINAL_REPORT_MAX_TOKENS

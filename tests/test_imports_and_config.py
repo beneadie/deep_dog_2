@@ -144,7 +144,7 @@ def test_model_factory_openrouter_passthrough_and_provider_override():
     cfg = RunConfig(
         profile="or-test",
         route_via_openrouter=True,
-        supervisor_model_fallback_chain=["deepseek/deepseek-flash"],
+        supervisor_model_fallback_chain=["deepseek/deepseek-v4.1-flash-1017"],
         subagent_model_fallback_chain=["anthropic/claude-sonnet-4.6"],
         openrouter_provider_order=["baseten"],
         model_extra_body={"provider": {"sort": "price"}},
@@ -155,7 +155,7 @@ def test_model_factory_openrouter_passthrough_and_provider_override():
     sup = mf.supervisor()
     sub = mf.subagent()
 
-    assert sup.model_name == "deepseek/deepseek-flash"
+    assert sup.model_name == "deepseek/deepseek-v4.1-flash-1017"
     assert sup.extra_body["provider"]["order"] == ["baseten"]
     assert sup.extra_body["provider"]["sort"] == "price"
     assert sub.model_name == "anthropic/claude-sonnet-4.6"
@@ -167,7 +167,7 @@ def test_model_factory_final_writer_reasoning_override():
     cfg = RunConfig(
         profile="writer-test",
         route_via_openrouter=True,
-        supervisor_model_fallback_chain=["deepseek/deepseek-flash"],
+        supervisor_model_fallback_chain=["anthropic/claude-sonnet-4.6"],
         final_report_reasoning="medium",
         final_report_max_tokens=60000,
         disable_model_fallback=True,
@@ -180,6 +180,49 @@ def test_model_factory_final_writer_reasoning_override():
     assert second.extra_body["reasoning"]["effort"] == "low"
     assert first is not second
     assert mf.final_writer() is first
+
+
+def test_model_factory_final_writer_defaults_and_native_no_effort():
+    cfg = RunConfig(disable_model_fallback=True)
+    assert cfg.final_report_model_fallback_chain is None
+    assert cfg.final_report_route_via_openrouter is None
+
+    creds = Credentials({"DEEPSEEK_API_KEY": "sk-test-not-real"})
+    cfg = RunConfig(
+        route_via_openrouter=False,
+        supervisor_model_fallback_chain=["deepseek/deepseek-v4.1-flash-1017"],
+        final_report_model_fallback_chain=["deepseek-flash"],
+        disable_model_fallback=True,
+    )
+    model = ModelFactory(cfg, creds).final_writer()
+    assert type(model).__name__ == "ChatDeepSeek"
+    assert not (getattr(model, "extra_body", None) or {}).get("reasoning")
+
+
+def test_model_factory_final_writer_explicit_route_override():
+    creds = Credentials({"OPENROUTER_API_KEY": "sk-test-not-real"})
+    cfg = RunConfig(
+        route_via_openrouter=False,
+        supervisor_model_fallback_chain=["deepseek-flash"],
+        final_report_model_fallback_chain=["anthropic/claude-sonnet-4.6"],
+        final_report_route_via_openrouter=True,
+        disable_model_fallback=True,
+    )
+    model = ModelFactory(cfg, creds).final_writer()
+    assert "openrouter" in str(model.openai_api_base)
+    assert model.extra_body["reasoning"]["effort"] == "medium"
+
+
+def test_model_factory_final_writer_deepseek_skips_effort():
+    creds = Credentials({"OPENROUTER_API_KEY": "sk-test-not-real"})
+    cfg = RunConfig(
+        route_via_openrouter=True,
+        final_report_model_fallback_chain=["deepseek/deepseek-v4.1-flash-1017"],
+        disable_model_fallback=True,
+    )
+    model = ModelFactory(cfg, creds).final_writer()
+    assert "openrouter" in str(model.openai_api_base)
+    assert not (getattr(model, "extra_body", None) or {}).get("reasoning")
 
 
 def test_model_factory_cached_per_run():

@@ -409,6 +409,16 @@ if _supervisor_chain_env:
 else:
     SUPERVISOR_MODEL_FALLBACK_CHAIN = [SUPERVISOR_MODEL, "deepseek-v4-pro"]
 
+# Final report writer chain. Defaults to the supervisor chain so behaviour is
+# unchanged; set FINAL_REPORT_MODEL_FALLBACK_CHAIN to give the writer its own
+# model (e.g. native DeepSeek) without changing the supervisor's decisions.
+_final_report_chain_env = os.environ.get("FINAL_REPORT_MODEL_FALLBACK_CHAIN", "").strip()
+# None means "follow this run's supervisor chain" (resolved at run time).
+FINAL_REPORT_MODEL_FALLBACK_CHAIN = (
+    [m.strip() for m in _final_report_chain_env.split(",") if m.strip()]
+    if _final_report_chain_env else None
+)
+
 # Sub-agent model chain (research platform agents), as
 # model NAMES resolved by get_model(). SUBAGENT_MODEL is the primary; the chain
 # is the ordered fallback list. Override the whole chain with
@@ -539,11 +549,11 @@ BABA_PROVIDER_SLUG = "alibaba"
 #
 #   ROUTE_VIA_OPENROUTER                shared default (global toggle)
 #   SUBAGENT_ROUTE_VIA_OPENROUTER       platform research agents
-#   SUPERVISOR_ROUTE_VIA_OPENROUTER     supervisor decision +
-#                                       final report write. These three are CACHE-TIED:
-#                                       they must share the same provider/model so the
-#                                       prompt-cache prefix hits, so they always use the
-#                                       supervisor flag together.
+#   SUPERVISOR_ROUTE_VIA_OPENROUTER     supervisor decision. The final report writer
+#                                       defaults to this route and chain so the prompt
+#                                       cache prefix hits. Set FINAL_REPORT_* overrides
+#                                       to use a different writer model; that loses the
+#                                       shared prefix but keeps the supervisor unchanged.
 #   DRAFT_ROUTE_VIA_OPENROUTER          the research brief and initial draft report nodes.
 #                                       These passes are cold/non-cacheable, so they may
 #                                       route independently (e.g. to OpenRouter for a
@@ -557,6 +567,10 @@ ROUTE_VIA_OPENROUTER = os.environ.get("ROUTE_VIA_OPENROUTER", "").strip().lower(
 SUBAGENT_ROUTE_VIA_OPENROUTER = os.environ.get("SUBAGENT_ROUTE_VIA_OPENROUTER", "").strip().lower()
 SUPERVISOR_ROUTE_VIA_OPENROUTER = os.environ.get("SUPERVISOR_ROUTE_VIA_OPENROUTER", "").strip().lower()
 DRAFT_ROUTE_VIA_OPENROUTER = os.environ.get("DRAFT_ROUTE_VIA_OPENROUTER", "").strip().lower()
+# Empty inherits the supervisor route (the historical behaviour); explicit
+# true/false overrides it for the final report writer only.
+FINAL_REPORT_ROUTE_VIA_OPENROUTER = os.environ.get(
+    "FINAL_REPORT_ROUTE_VIA_OPENROUTER", "").strip().lower()
 
 # Reasoning effort for the research brief and initial draft report nodes.
 #                            "" = provider default.
@@ -769,7 +783,7 @@ FETCH_URL_MAX_CHARS = int(os.environ.get("FETCH_URL_MAX_CHARS", "10000"))
 # native API also uses "deepseek-flash" as its canonical name.
 _OPENROUTER_MODEL_MAP_BY_NAME = {
     "deepseek-v4-pro": "deepseek/deepseek-v4-pro",
-    "deepseek-flash": "deepseek/deepseek-v4-flash",
+    "deepseek-flash": "~deepseek/deepseek-flash-latest",
     "mimo-v2.5": "xiaomi/mimo-v2.5",
     "mimo-v2.5-pro": "xiaomi/mimo-v2.5-pro",
 }
@@ -1114,6 +1128,41 @@ def _fetch_openrouter_capabilities(credentials=None) -> dict:
     return models
 
 
+def _resolve_or_slug(model_name: str) -> str:
+    """Apply the same short-name aliases used when building OpenRouter clients."""
+    slug = _OPENROUTER_MODEL_MAP_BY_NAME.get(model_name.lower())
+    if slug is None and "muse" in model_name.lower() and not model_name.startswith("meta/"):
+        slug = f"meta/{model_name}"
+    return slug or model_name
+
+
+def validate_openrouter_model_ids(role_models: dict | None = None, credentials=None) -> None:
+    """Raise before a run if any OpenRouter-routed model ID is not in the catalog.
+
+    Skips silently when the catalog cannot be fetched (offline). Uses the same
+    cached catalog as the capability preflight, so it costs no extra request.
+    """
+    if not role_models:
+        return
+    try:
+        catalog = _fetch_openrouter_capabilities(credentials)
+    except Exception:
+        return
+    if not catalog:
+        return
+    invalid = []
+    for role, names in role_models.items():
+        for name in names or []:
+            slug = _resolve_or_slug(name)
+            if slug not in catalog:
+                invalid.append(f"{role}: {name} -> {slug}")
+    if invalid:
+        raise ValueError(
+            "Unknown OpenRouter model ID(s): " + "; ".join(invalid)
+            + ". Check the IDs at https://openrouter.ai/models before running again."
+        )
+
+
 def warn_openrouter_capabilities(role_models: dict | None = None, credentials=None) -> None:
     """Warn (never raise/block) if a selected OR model lacks required capabilities.
 
@@ -1133,10 +1182,7 @@ def warn_openrouter_capabilities(role_models: dict | None = None, credentials=No
     for role, names in role_models.items():
         needs_tools = role in ("supervisor", "subagent")
         for name in names or []:
-            slug = _OPENROUTER_MODEL_MAP_BY_NAME.get(name.lower())
-            if slug is None and "muse" in name.lower() and not name.startswith("meta/"):
-                slug = f"meta/{name}"
-            supported = catalog.get(slug or name)
+            supported = catalog.get(_resolve_or_slug(name))
             if supported is None:
                 continue
             if needs_tools and "tools" not in supported:

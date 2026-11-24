@@ -106,6 +106,10 @@ def validate_credentials(config: Optional[RunConfig] = None,
 
     # ── Model chains (per role) ────────────────────────────────────────
     from deep_research.config import model_required_keys
+    final_chain = cfg.final_report_model_fallback_chain or cfg.supervisor_model_fallback_chain
+    final_route = (cfg.resolved_role_route("final_report")
+                   if getattr(cfg, "final_report_route_via_openrouter", None) is not None
+                   else cfg.resolved_role_route("supervisor"))
     roles = (
         ("supervisor", cfg.supervisor_model_fallback_chain,
          cfg.resolved_role_route("supervisor")),
@@ -113,6 +117,7 @@ def validate_credentials(config: Optional[RunConfig] = None,
          cfg.resolved_role_route("draft")),
         ("subagent", cfg.subagent_model_fallback_chain,
          cfg.resolved_role_route("subagent")),
+        ("final_report", final_chain, final_route),
     )
     for role, chain, route in roles:
         usable = any(
@@ -154,10 +159,8 @@ def validate_credentials(config: Optional[RunConfig] = None,
     )
 
 
-def _warn_model_capabilities(cfg: RunConfig, creds: Credentials) -> None:
-    """Best-effort warning for OpenRouter-roled models lacking required features."""
-    from deep_research.config import warn_openrouter_capabilities
-
+def _openrouter_role_models(cfg: RunConfig) -> dict[str, list]:
+    """Model chains for every role whose requests go through OpenRouter."""
     role_models = {}
     for role, route_key, chain_attr in (
         ("supervisor", "supervisor", "supervisor_model_fallback_chain"),
@@ -166,6 +169,22 @@ def _warn_model_capabilities(cfg: RunConfig, creds: Credentials) -> None:
     ):
         if cfg.resolved_role_route(route_key):
             role_models[role] = list(getattr(cfg, chain_attr) or [])
+
+    final_route = (cfg.resolved_role_route("final_report")
+                   if getattr(cfg, "final_report_route_via_openrouter", None) is not None
+                   else cfg.resolved_role_route("supervisor"))
+    if final_route:
+        role_models["final_report"] = list(
+            cfg.final_report_model_fallback_chain or cfg.supervisor_model_fallback_chain)
+    return role_models
+
+
+def _warn_model_capabilities(cfg: RunConfig, creds: Credentials) -> None:
+    """Best-effort warning for OpenRouter-roled models lacking required features."""
+    from deep_research.config import warn_openrouter_capabilities
+
+    role_models = _openrouter_role_models(cfg)
+    role_models.pop("final_report", None)  # prose writer: no tool/JSON requirement
     warn_openrouter_capabilities(role_models, creds)
 
 
@@ -371,6 +390,10 @@ async def run_research(
                       missing_required=cred_check.missing_required,
                       optional_missing=cred_check.optional_missing)
         await observer.flush_events()
+        # Fail fast on invalid OpenRouter model IDs before any billable calls.
+        from deep_research.config import validate_openrouter_model_ids
+        await asyncio.to_thread(
+            validate_openrouter_model_ids, _openrouter_role_models(cfg), creds)
         # Non-blocking capability warnings for OpenRouter-routed models.
         await asyncio.to_thread(_warn_model_capabilities, cfg, creds)
 

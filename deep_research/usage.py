@@ -147,7 +147,10 @@ def _configured_model(runtime: Any, role: str) -> Optional[str]:
     cfg = getattr(runtime, "config", None)
     if cfg is None:
         return None
-    if role in ("scope_brief", "draft_report"):
+    if role == "final_report_writer":
+        chain = getattr(cfg, "final_report_model_fallback_chain", None) \
+            or getattr(cfg, "supervisor_model_fallback_chain", None)
+    elif role in ("scope_brief", "draft_report"):
         chain = getattr(cfg, "draft_report_model_fallback_chain", None)
     elif role in ("subagent", "subagent_report_writer"):
         chain = getattr(cfg, "subagent_model_fallback_chain", None)
